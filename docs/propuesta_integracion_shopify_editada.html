@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Propuesta de Integración Shopify</title>
+  <style>
+    :root {
+      --ink: #17212b;
+      --muted: #5d6975;
+      --line: #d9e0e7;
+      --soft: #f5f7fa;
+      --accent: #1f7a5a;
+      --accent-2: #255a8a;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: #eef2f5;
+      font-family: Arial, Helvetica, sans-serif;
+      line-height: 1.48;
+    }
+
+    .page {
+      width: 8.5in;
+      min-height: 11in;
+      margin: 24px auto;
+      padding: 0.72in;
+      background: #fff;
+      box-shadow: 0 12px 34px rgba(23, 33, 43, 0.12);
+    }
+
+    header {
+      border-bottom: 3px solid var(--accent);
+      padding-bottom: 22px;
+      margin-bottom: 28px;
+    }
+
+    .eyebrow {
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    h1 {
+      font-size: 34px;
+      line-height: 1.08;
+      margin: 0 0 12px;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 15px;
+      max-width: 650px;
+      margin: 0;
+    }
+
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    .meta div, .callout {
+      border: 1px solid var(--line);
+      background: var(--soft);
+      border-radius: 6px;
+      padding: 12px;
+    }
+
+    .label {
+      color: var(--muted);
+      display: block;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+    }
+
+    h2 {
+      color: var(--accent-2);
+      font-size: 20px;
+      margin: 30px 0 10px;
+      padding-bottom: 7px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h3 {
+      font-size: 15px;
+      margin: 18px 0 6px;
+    }
+
+    p { margin: 0 0 10px; }
+
+    ul {
+      margin: 8px 0 0 19px;
+      padding: 0;
+    }
+
+    li { margin: 5px 0; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      font-size: 13px;
+    }
+
+    th, td {
+      border: 1px solid var(--line);
+      padding: 9px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--soft);
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    code {
+      background: #eef3f7;
+      border: 1px solid #dbe5ee;
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: Consolas, Monaco, monospace;
+      font-size: 12px;
+    }
+
+    .status {
+      color: #0f6a4d;
+      font-weight: 700;
+    }
+
+    .pending {
+      color: #8a5b12;
+      font-weight: 700;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    footer {
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+      font-size: 12px;
+      margin-top: 34px;
+      padding-top: 14px;
+    }
+
+    @media print {
+      body { background: #fff; }
+      .page {
+        width: auto;
+        min-height: auto;
+        margin: 0;
+        box-shadow: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <div class="eyebrow">Propuesta técnica actualizada</div>
+      <h1>Integración Shopify para pagos offline, órdenes e inventario</h1>
+      <p class="subtitle">
+        Documento actualizado con base en el desarrollo realizado: backend FastAPI conectado a Shopify Admin API,
+        recepción de webhooks, sincronización de órdenes, confirmación de pagos manuales, inventario y persistencia
+        detallada de productos vendidos por orden.
+      </p>
+      <section class="meta" aria-label="Datos del documento">
+        <div><span class="label">Fecha</span>30 de abril de 2026</div>
+        <div><span class="label">Proyecto</span>shopifyPayments</div>
+        <div><span class="label">Estado</span><span class="status">Base funcional implementada</span></div>
+      </section>
+    </header>
+
+    <section>
+      <h2>1. Resumen ejecutivo</h2>
+      <p>
+        La solución implementa un backend para integrar Shopify con procesos internos de confirmación de pagos
+        offline o manuales. El sistema recibe pedidos desde Shopify, identifica métodos como efectivo o transferencia,
+        guarda la información en PostgreSQL y permite confirmar el pago para crear una transacción exitosa en Shopify.
+      </p>
+      <p>
+        La integración se amplió para incluir inventario y detalle de líneas de pedido. Cada orden ahora puede devolver
+        sus <code>line_items</code> mediante una tabla relacional <code>order_items</code>, lo que facilita consultas,
+        reportes y cruces con producto, variante, SKU e inventario.
+      </p>
+    </section>
+
+    <section>
+      <h2>2. Alcance implementado</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Módulo</th>
+            <th>Resultado</th>
+            <th>Estado</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Órdenes Shopify</td>
+            <td>Sincronización de pedidos con <code>status=any</code>, paginación REST y consulta por listado o detalle.</td>
+            <td class="status">Implementado</td>
+          </tr>
+          <tr>
+            <td>Line items</td>
+            <td>Persistencia en tabla <code>order_items</code> con producto, variante, SKU, título, cantidad, precio y fulfillment.</td>
+            <td class="status">Implementado</td>
+          </tr>
+          <tr>
+            <td>Pagos offline</td>
+            <td>Detección de métodos manuales y normalización a códigos internos como <code>efectivo</code> y <code>transferencia</code>.</td>
+            <td class="status">Implementado</td>
+          </tr>
+          <tr>
+            <td>Confirmación de pago</td>
+            <td>Endpoint interno para confirmar pago, crear transacción <code>sale</code> en Shopify y marcar orden local como pagada.</td>
+            <td class="status">Implementado</td>
+          </tr>
+          <tr>
+            <td>Webhooks</td>
+            <td>Recepción y validación HMAC para órdenes, niveles de inventario, items de inventario y productos.</td>
+            <td class="status">Implementado</td>
+          </tr>
+          <tr>
+            <td>Inventario</td>
+            <td>Sincronización de inventario por item, ubicación, producto, variante, SKU y disponibilidad.</td>
+            <td class="status">Implementado</td>
+          </tr>
+          <tr>
+            <td>Instalación OAuth</td>
+            <td>Rutas de instalación, callback y registro automático de webhooks con la URL pública configurada.</td>
+            <td class="status">Implementado</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>3. Arquitectura técnica</h2>
+      <div class="two-col">
+        <div>
+          <h3>Stack</h3>
+          <ul>
+            <li>Python + FastAPI</li>
+            <li>PostgreSQL</li>
+            <li>SQLAlchemy async</li>
+            <li>Alembic para migraciones</li>
+            <li>Shopify Admin REST API</li>
+            <li>Docker Compose para ejecución local</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Capas del sistema</h3>
+          <ul>
+            <li><code>api</code>: routers y schemas HTTP.</li>
+            <li><code>application</code>: lógica de órdenes, pagos, inventario y webhooks.</li>
+            <li><code>domain</code>: modelos de negocio.</li>
+            <li><code>infrastructure</code>: repositorios, base de datos y cliente Shopify.</li>
+            <li><code>core</code>: configuración, seguridad y normalización.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>4. Modelo de datos actualizado</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Tabla</th>
+            <th>Descripción</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>orders</code></td>
+            <td>Orden Shopify, estado financiero, estado interno, cliente, método de pago y totales.</td>
+          </tr>
+          <tr>
+            <td><code>order_items</code></td>
+            <td>Detalle relacional de líneas de pedido: line item Shopify, producto, variante, SKU, título, cantidad, precio y estado fulfillment.</td>
+          </tr>
+          <tr>
+            <td><code>customers</code></td>
+            <td>Cliente Shopify asociado a la orden.</td>
+          </tr>
+          <tr>
+            <td><code>payment_methods</code></td>
+            <td>Métodos offline normalizados.</td>
+          </tr>
+          <tr>
+            <td><code>payments</code></td>
+            <td>Pagos confirmados y transacciones Shopify asociadas.</td>
+          </tr>
+          <tr>
+            <td><code>inventory_items</code></td>
+            <td>Inventario por producto, variante, item de inventario y ubicación.</td>
+          </tr>
+          <tr>
+            <td><code>webhook_events</code></td>
+            <td>Auditoría de eventos recibidos desde Shopify.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>5. Endpoints disponibles</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Endpoint</th>
+            <th>Uso</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><code>GET /health</code></td><td>Verificación de disponibilidad del servicio.</td></tr>
+          <tr><td><code>GET /orders</code></td><td>Lista órdenes con cliente, estado, total y <code>line_items</code>.</td></tr>
+          <tr><td><code>GET /orders/{id}</code></td><td>Detalle de una orden con <code>customer_id</code>, método de pago y <code>line_items</code>.</td></tr>
+          <tr><td><code>POST /orders/sync</code></td><td>Sincroniza órdenes desde Shopify y actualiza sus líneas de pedido.</td></tr>
+          <tr><td><code>POST /payments/confirm</code></td><td>Confirma pago manual y registra transacción en Shopify.</td></tr>
+          <tr><td><code>GET /payments</code></td><td>Lista pagos procesados.</td></tr>
+          <tr><td><code>GET /inventory</code></td><td>Lista inventario sincronizado.</td></tr>
+          <tr><td><code>POST /inventory/sync</code></td><td>Sincroniza inventario desde Shopify.</td></tr>
+          <tr><td><code>GET /webhooks/logs</code></td><td>Consulta eventos recibidos y verificados.</td></tr>
+          <tr><td><code>GET /auth/install</code></td><td>Flujo OAuth de instalación.</td></tr>
+          <tr><td><code>POST /auth/webhooks/register</code></td><td>Registra webhooks requeridos en Shopify.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>6. Webhooks configurados</h2>
+      <ul>
+        <li><code>orders/create</code>: crea o actualiza la orden local e identifica pagos offline.</li>
+        <li><code>orders/updated</code>: mantiene sincronizados estado, datos del cliente y líneas de pedido.</li>
+        <li><code>inventory_levels/update</code>: actualiza disponibilidad por ubicación.</li>
+        <li><code>inventory_items/update</code>: actualiza datos del item de inventario.</li>
+        <li><code>products/update</code>: refresca información de productos/variantes vinculadas al inventario.</li>
+      </ul>
+      <div class="callout">
+        Todos los webhooks validan la firma <code>X-Shopify-Hmac-Sha256</code> antes de procesar el payload.
+      </div>
+    </section>
+
+    <section>
+      <h2>7. Flujo operativo</h2>
+      <ol>
+        <li>Shopify genera o actualiza una orden.</li>
+        <li>El webhook llega al backend y se valida con HMAC.</li>
+        <li>La orden se guarda o actualiza en <code>orders</code>.</li>
+        <li>Los productos vendidos se guardan en <code>order_items</code>.</li>
+        <li>Si el método de pago es offline, la orden queda en estado interno <code>pending_payment</code>.</li>
+        <li>Un operador confirma el pago mediante <code>POST /payments/confirm</code>.</li>
+        <li>El backend crea la transacción en Shopify y marca la orden local como <code>paid</code>.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>8. Pruebas y validación</h2>
+      <p>
+        La suite automatizada cubre sincronización de órdenes, persistencia de <code>line_items</code>, confirmación de pagos,
+        cliente Shopify, HMAC de webhooks, OAuth, configuración e inventario.
+      </p>
+      <p>
+        Última validación ejecutada: <code>venv\Scripts\python.exe -m pytest tests -p no:cacheprovider</code>.
+        Resultado: <span class="status">16 pruebas aprobadas</span>.
+      </p>
+    </section>
+
+    <section>
+      <h2>9. Requisitos de configuración</h2>
+      <ul>
+        <li><code>DATABASE_URL</code>: conexión PostgreSQL.</li>
+        <li><code>SHOPIFY_SHOP</code>: dominio de tienda Shopify.</li>
+        <li><code>SHOPIFY_ACCESS_TOKEN</code>: token Admin API.</li>
+        <li><code>SHOPIFY_WEBHOOK_SECRET</code>: secreto para validación HMAC.</li>
+        <li><code>APP_URL</code>: URL pública para webhooks, normalmente ngrok en desarrollo.</li>
+        <li>Scopes Shopify: <code>read_orders</code>, <code>write_orders</code>, <code>read_customers</code>, <code>read_all_orders</code>, inventario y productos según uso.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>10. Próximos pasos recomendados</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Actividad</th>
+            <th>Objetivo</th>
+            <th>Estado sugerido</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Panel administrativo</td>
+            <td>Construir una interfaz para listar órdenes pendientes y confirmar pagos sin usar llamadas manuales a API.</td>
+            <td class="pending">Siguiente fase</td>
+          </tr>
+          <tr>
+            <td>Filtros y paginación internos</td>
+            <td>Filtrar órdenes por estado, email, fecha, método de pago y producto vendido.</td>
+            <td class="pending">Siguiente fase</td>
+          </tr>
+          <tr>
+            <td>Reportes</td>
+            <td>Exportar ventas por método de pago, SKU, producto, variante y estado de fulfillment.</td>
+            <td class="pending">Siguiente fase</td>
+          </tr>
+          <tr>
+            <td>Observabilidad</td>
+            <td>Agregar trazas estructuradas, alertas y métricas para errores de webhooks o Shopify API.</td>
+            <td class="pending">Siguiente fase</td>
+          </tr>
+          <tr>
+            <td>Ambiente productivo</td>
+            <td>Configurar dominio estable, secretos productivos, backups y despliegue automatizado.</td>
+            <td class="pending">Siguiente fase</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer>
+      Documento generado a partir del estado actual del proyecto local <code>shopifyPayments</code>.
+      Puede editarse directamente como HTML o imprimirse como PDF desde el navegador.
+    </footer>
+  </main>
+</body>
+</html>

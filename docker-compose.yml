@@ -1,0 +1,104 @@
+version: '3.9'
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: shopify_payments
+    ports:
+      - '5432:5432'
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d shopify_payments"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+
+  migrate:
+    build: .
+    command: sh -c "python scripts/run_migrations.py && python scripts/seed_payment_methods.py"
+    volumes:
+      - .:/app
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/shopify_payments
+      - SHOPIFY_SHOP=${SHOPIFY_SHOP}
+      - SHOPIFY_API_VERSION=${SHOPIFY_API_VERSION:-2026-01}
+      - SHOPIFY_ACCESS_TOKEN=${SHOPIFY_ACCESS_TOKEN}
+      - SHOPIFY_WEBHOOK_SECRET=${SHOPIFY_WEBHOOK_SECRET}
+      - SHOPIFY_CLIENT_ID=${SHOPIFY_CLIENT_ID}
+      - SHOPIFY_CLIENT_SECRET=${SHOPIFY_CLIENT_SECRET}
+      - SHOPIFY_SCOPES=${SHOPIFY_SCOPES}
+      - APP_URL=${APP_URL}
+      - SE_BASE_URL=${SE_BASE_URL}
+      - SE_API_KEY=${SE_API_KEY}
+      - SE_COMPANY_CODE=${SE_COMPANY_CODE:-1}
+      - REDIS_URL=redis://redis:6379/0
+      - DEBUG_ERRORS=true
+      - OFFLINE_PAYMENT_METHODS=efectivo,transferencia,transferencia bancaria,bank deposit,cash,manual
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    build: .
+    command: sh -c "uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    volumes:
+      - .:/app
+    ports:
+      - '8000:8000'
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/shopify_payments
+      - SHOPIFY_SHOP=${SHOPIFY_SHOP}
+      - SHOPIFY_API_VERSION=${SHOPIFY_API_VERSION:-2026-01}
+      - SHOPIFY_ACCESS_TOKEN=${SHOPIFY_ACCESS_TOKEN}
+      - SHOPIFY_WEBHOOK_SECRET=${SHOPIFY_WEBHOOK_SECRET}
+      - SHOPIFY_CLIENT_ID=${SHOPIFY_CLIENT_ID}
+      - SHOPIFY_CLIENT_SECRET=${SHOPIFY_CLIENT_SECRET}
+      - SHOPIFY_SCOPES=${SHOPIFY_SCOPES}
+      - APP_URL=${APP_URL}
+      - OAUTH_CALLBACK_PATH=/auth/callback
+      - DEBUG_ERRORS=true
+      - REDIS_URL=redis://redis:6379/0
+      - OFFLINE_PAYMENT_METHODS=efectivo,transferencia,transferencia bancaria,bank deposit,cash,manual
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+
+  arq:
+    build: .
+    command: sh -c "arq workers.arq_worker.WorkerSettings"
+    volumes:
+      - .:/app
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/shopify_payments
+      - SHOPIFY_SHOP=${SHOPIFY_SHOP}
+      - SHOPIFY_API_VERSION=${SHOPIFY_API_VERSION:-2026-01}
+      - SHOPIFY_ACCESS_TOKEN=${SHOPIFY_ACCESS_TOKEN}
+      - SHOPIFY_WEBHOOK_SECRET=${SHOPIFY_WEBHOOK_SECRET}
+      - SHOPIFY_CLIENT_ID=${SHOPIFY_CLIENT_ID}
+      - SHOPIFY_CLIENT_SECRET=${SHOPIFY_CLIENT_SECRET}
+      - SHOPIFY_SCOPES=${SHOPIFY_SCOPES}
+      - APP_URL=${APP_URL}
+      - SE_BASE_URL=${SE_BASE_URL}
+      - SE_API_KEY=${SE_API_KEY}
+      - SE_COMPANY_CODE=${SE_COMPANY_CODE:-1}
+      - REDIS_URL=redis://redis:6379/0
+      - DEBUG_ERRORS=true
+      - OFFLINE_PAYMENT_METHODS=efectivo,transferencia,transferencia bancaria,bank deposit,cash,manual
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+
+volumes:
+  db_data:

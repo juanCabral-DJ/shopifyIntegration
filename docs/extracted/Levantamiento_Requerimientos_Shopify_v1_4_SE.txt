@@ -1,0 +1,1344 @@
+
+
+--- PAGE 1 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 1 de 30 
+LEVANTAMIENTO DE 
+REQUERIMIENTOS 
+Integración Shopify – Middleware – Sistema Externo 
+Campo Detalle 
+Proyecto Integración Shopify – Sistema Externo vía Middleware 
+Versión 1.4 – Endpoints reales del SE corregidos 
+Fecha 11 de mayo de 2026 
+Estado En revisión 
+Clasificación Confidencial 
+ 
+Control de Versiones 
+Ver. Fecha Autor Cambios 
+1.0 11 may 2026 Equipo Tecnología Borrador inicial 
+1.3 11 may 2026 Equipo Tecnología Incorporación de modelos de datos reales del SE 
+(DTOs) 
+1.4 11 may 2026 Equipo Tecnología Corrección de métodos HTTP (GET→POST en 
+endpoints de consulta), incorporación de endpoints 
+nuevos: /api/Minvfismovil/getfisico, /api/inventario/fisico, 
+/api/Madmimg/get, 
+/api/Factura/GetVentasProductosFamilia, 
+/api/Factura/GetDetalleVentasProductosFamilia, 
+/api/Factura/ProductosComprados, 
+/api/Factura/GetVendedores. Actualización de secciones 
+3, 6 y 7. 
+  
+
+
+--- PAGE 2 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 2 de 30 
+1. Información General del Proyecto 
+Campo Detalle 
+Proyecto Integración Shopify – Sistema Externo vía Middleware 
+Versión 1.4 – Endpoints reales del SE corregidos 
+Fecha 11 de mayo de 2026 
+Estado En revisión 
+Clasificación Confidencial 
+ 
+1.1 Propósito del Documento 
+El presente documento formaliza el levantamiento de requerimientos para la capa de integración (middleware) 
+entre Shopify y el Sistema Externo (SE). La versión 1.4 corrige los métodos HTTP de todos los endpoints de 
+consulta del SE (la mayoría son POST, no GET) e incorpora los endpoints nuevos descubiertos en la revisión del 
+API real del SE. 
+ 
+1.2 Alcance 
+• Recepción y persistencia de órdenes de Shopify en el SE (POST /api/Factura/Insertar). 
+• Confirmación de pagos no-Shopify gestionados por el SE (POST /api/Meftrcb/InsertarRecibo). 
+• Sincronización bidireccional de inventario, incluyendo inventario físico móvil (GET 
+/api/Minvfismovil/getfisico, POST /api/inventario/fisico). 
+• Sincronización bidireccional de catálogo: productos (POST /api/Minvitm/get), precios (POST 
+/api/Mfacpre/get), imágenes (POST /api/Madmimg/get), familias y marcas. 
+• Emisión y gestión de facturas fiscales (NCF) con notificación al cliente. 
+• Observabilidad: métricas de ventas por familia (POST /api/Factura/GetVentasProductosFamilia) y 
+productos comprados (GET /api/Factura/ProductosComprados). 
+ 
+1.3 Fuente de verdad por dominio 
+Dominio Fuente de verdad Dirección de sync 
+Órdenes Sistema Externo (BD) Shopify → Middleware → SE 
+Pagos Sistema Externo (meftrcbDto) SE → Middleware → Shopify 
+Inventario (stock real) Sistema Externo (POST 
+/api/Minvitm/get) 
+SE → Middleware → Shopify 
+Inventario físico móvil Sistema Externo (GET 
+/api/Minvfismovil/getfisico) 
+SE → Middleware → Shopify 
+Catálogo / Productos Sistema Externo (POST 
+/api/Minvitm/get) 
+SE ↔ Middleware ↔ Shopify 
+Imágenes Sistema Externo (POST 
+/api/Madmimg/get) 
+SE → Middleware → Shopify 
+Precios Sistema Externo (POST 
+/api/Mfacpre/get) 
+SE → Middleware → Shopify 
+
+
+--- PAGE 3 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 3 de 30 
+Dominio Fuente de verdad Dirección de sync 
+Facturas Sistema Externo (principal) Ambas plataformas emiten 
+  
+
+
+--- PAGE 4 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 4 de 30 
+2. Modelos de Datos del Sistema Externo 
+Esta sección documenta los DTOs exactos expuestos por la API del SE. El middleware los consume sin 
+modificarlos. Los campos se transcriben tal como los expone el SE. 
+ 
+2.1 McxccteDto — Cliente (POST /api/mcxccte/get) 
+Representa un cliente del SE. El middleware usa este DTO para crear o actualizar el customer en Shopify y 
+poblar map_cliente_customer. 
+Campo Tipo Notas / Descripción 
+admcia_Codigo integer($int32) Código de compañía (requerido en el body del POST) 
+facvdr_Codigo integer($int32) Código de vendedor asignado 
+cxccte_Codigo integer($int32) ID único del cliente → se_cliente_id en 
+map_cliente_customer 
+cxccte_Refer string (nullable) Referencia interna 
+cxccte_Nombre string (nullable) Razón social / nombre → se_cliente_nombre 
+cxccte_Rnc string (nullable) RNC / cédula fiscal → se_rnc 
+cxccpg_Codigo integer($int32) Condición de pago → se_cond_pago_id 
+admtco_Codigo integer($int32) Tipo de comprobante del cliente → POST 
+/api/Madmtco/get 
+facpre_Codigo integer($int32) Lista de precio asignada → join con POST 
+/api/Mfacpre/get 
+cxcdir_seq integer($int32) Secuencia de dirección principal 
+cxcdir_Nombre string (nullable) Dirección del cliente 
+cxccon_seq integer($int32) Secuencia de contacto 
+cxccon_Nombre string (nullable) Nombre del contacto 
+cxccte_telef1 string (nullable) Teléfono principal 
+cxccte_limcred number($double) Límite de crédito 
+cxccte_latitud string (nullable) Latitud GPS 
+cxccte_longitud string (nullable) Longitud GPS 
+cxccte_descuento number($double) Porcentaje de descuento general del cliente 
+ 
+2.2 MfactrxDto — Factura / Orden (POST /api/Factura/Insertar, POST 
+/api/Factura/GetFacturas) 
+DTO principal de ventas. El middleware transforma cada orden Shopify a este esquema. Una fila por encabezado 
+y una fila adicional por cada line_item (campos factrx_linea, invitm_codigo, factrx_cant, etc.). 
+Campo Tipo Notas / Descripción 
+admcia_codigo integer($int32) Código de compañía → POST /api/madmcia/get 
+
+
+--- PAGE 5 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 5 de 30 
+Campo Tipo Notas / Descripción 
+admsuc_codigo integer($int32) Sucursal → map_sucursales_locations (POST 
+/api/madmsuc/get) 
+factrx_numero integer($int32) Número de factura generado por el SE 
+factrx_tipo integer($int32) Tipo de transacción (factura, nota de crédito, etc.) 
+factrx_fecha string (nullable) Fecha de la factura 
+factrx_fechaped string (nullable) Fecha del pedido 
+factrx_refer string (nullable) Referencia / nombre orden Shopify (ej: #1001) 
+admmon_codigo string (nullable) Moneda (ISO 4217) 
+admmon_tasa number($double) Tasa de cambio 
+cxccte_codigo integer($int32) ID del cliente → map_cliente_customer.se_cliente_id 
+cxccte_nombre string (nullable) Nombre desnormalizado del cliente 
+cxcdir_seq integer($int32) Secuencia de dirección de entrega 
+cxcdir_nombre string (nullable) Nombre de la dirección 
+factrx_plazo integer($int32) Plazo de crédito en días 
+facpre_codigo integer($int32) Lista de precio → POST /api/Mfacpre/get 
+factrx_total number($double) Total bruto antes de descuentos 
+factrx_descgral number($double) Monto de descuento general 
+factrx_pdescgral number($double) Porcentaje de descuento general 
+factrx_valor number($double) Valor neto antes de impuesto 
+factrx_totimp number($double) Total de impuestos (ITBIS) 
+factrx_neto number($double) Neto total de la factura 
+admtco_codigo integer($int32) Tipo de comprobante → POST /api/Madmtco/get 
+cxccte_rnc string (nullable) RNC del cliente (desnormalizado para NCF) 
+facvdr_codigo integer($int32) Vendedor → POST /api/Factura/GetVendedores 
+cxccpg_codigo integer($int32) Condición de pago → POST /api/mcxccte/CondPago 
+cxccpg_cantidad integer($int32) Cantidad de cuotas 
+admusr_codigo string (nullable) Usuario que registra 
+admncf_serial string (nullable) Serial del NCF → POST 
+/api/Factura/GetNCFVendedores 
+factrx_movil_id string (nullable) ID móvil = shopify_order_id (clave de idempotencia) 
+factrx_modo integer($int32) Modo de captura 
+factrx_linea integer($int32) Número de línea del ítem 
+factrx_cant number($double) Cantidad del ítem 
+invitm_codigo integer($int32) Código del ítem → map_sku_variant.se_sku 
+invitm_nombre string (nullable) Descripción del ítem 
+admuni_codigo string (nullable) Unidad de medida 
+
+
+--- PAGE 6 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 6 de 30 
+Campo Tipo Notas / Descripción 
+factrx_precio number($double) Precio unitario 
+invcla_codigo integer($int32) Clasificación del ítem 
+ 
+2.3 Mfactrx2Dto — Línea de Factura simplificada 
+Campo Tipo Notas / Descripción 
+factrx_master integer($int32) Número de factura maestra (FK a 
+MfactrxDto.factrx_numero) 
+factrx_numero integer($int32) Número de línea 
+factrx_movil_id string (nullable) ID móvil de la línea (idempotencia) 
+admsts_codigo integer($int32) Estatus de la línea 
+factrx_valor number($double) Valor de la línea 
+factrx_valorfac number($double) Valor facturado 
+invitm_codigo integer($int32) Código del ítem → se_sku en map_sku_variant 
+factrx_cant number($double) Cantidad 
+admcia_codigo integer($int32) Compañía 
+facvdr_codigo integer($int32) Vendedor 
+ 
+2.4 meftrcbDto — Recibo de Cobro (POST /api/Meftrcb/InsertarRecibo) 
+DTO del recibo de pago no-Shopify. eftrcb_numero es el identificador único del recibo en el SE (se_recibo_id en 
+map_recibos). El middleware hace polling periódico y procesa solo los recibos cuyo eftrcb_numero no existe aún 
+en map_recibos. 
+Campo Tipo Notas / Descripción 
+eftrcb_numero integer($int32) ID único del recibo → se_recibo_id en map_recibos 
+(idempotencia) 
+admcia_codigo integer($int32) Compañía 
+admsuc_codigo integer($int32) Sucursal 
+admtrx_codigo string (nullable) Tipo de transacción 
+admtrx_origen integer($int32) Origen 
+eftrcb_docum integer($int32) Número del documento asociado 
+eftrcb_refer string (nullable) Referencia del pago → reference en map_recibos 
+eftrcb_fecha string (nullable) Fecha del recibo 
+cxccte_codigo integer($int32) Cliente → FK a McxccteDto 
+eftrcb_recibde string (nullable) Recibido de (nombre) 
+admmon_codigo string (nullable) Moneda → currency en map_recibos 
+admmon_tasa number($double) Tasa de cambio 
+
+
+--- PAGE 7 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 7 de 30 
+Campo Tipo Notas / Descripción 
+eftrcb_montobr number($double) Monto bruto 
+eftrcb_monto number($double) Monto neto → amount en map_recibos 
+eftrcb_desc number($double) Descuento aplicado 
+eftrcb_descrip string (nullable) Descripción 
+cajcua_numero integer($int32) Número de cuadre de caja 
+admsts_codigo integer($int32) Estatus 
+admmod_codigo string (nullable) Modalidad de pago → payment_source en 
+map_recibos 
+admusr_codigo string (nullable) Usuario 
+eftcbr_codigo integer (nullable) Banco / forma de cobro → FK a MeftcbrDto 
+eftrcb_vrete number($double) Valor de retención 
+eftrcb_avance number($double) Anticipo aplicado → POST /api/mcxcant/get 
+eftrcb_tdeuda number($double) Total de deuda del cliente 
+eftrcb_tpendiente number($double) Saldo pendiente → balance_pending en map_recibos 
+cajtur_codigo string (nullable) Turno de caja 
+eftrcb_mora number($double) Mora 
+eftrcb_interes number($double) Interés 
+detalles deftrcbDto[] Documentos aplicados por el recibo (abonos 
+parciales) 
+madmimg MadmimgDto[] Imágenes adjuntas (comprobante fotográfico) → 
+POST /api/Madmimg/get 
+ 
+2.5 deftrcbDto — Detalle del Recibo (array en meftrcbDto.detalles) 
+Cada elemento representa un documento (factura) al que se aplica el recibo, permitiendo abonos parciales (RF-
+12). 
+Campo Tipo Notas / Descripción 
+eftrcb_numero integer($int32) Recibo padre → FK a meftrcbDto 
+eftrcb_seq integer($int32) Secuencia de la línea 
+admtrx_codigo string (nullable) Tipo de transacción 
+admtrx_origen integer($int32) Origen 
+eftrcb_master integer($int32) Factura/documento aplicado 
+eftrcb_docum integer($int32) Número interno del documento 
+eftrcb_pdesc number($double) Porcentaje de descuento 
+eftrcb_desc number($double) Monto de descuento 
+eftrcb_valor number($double) Valor aplicado a este documento (abono parcial) 
+admmod_codigo string (nullable) Modalidad 
+
+
+--- PAGE 8 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 8 de 30 
+Campo Tipo Notas / Descripción 
+eftrcb_vrete number($double) Retención 
+eftrcb_prete number($double) Porcentaje de retención 
+admmon_tasa number($double) Tasa de cambio 
+admmon_codigo string (nullable) Moneda 
+cxctrx_pend number($double) Pendiente tras el abono 
+ 
+2.6 MfacpreDto — Lista de Precios (POST /api/Mfacpre/get) 
+Listas de precio configuradas en el SE. El middleware las consulta cada 2 minutos para detectar cambios (RF-
+21). facpre_Principal=1 indica la lista predeterminada. 
+Campo Tipo Notas / Descripción 
+admCia_Codigo integer($int32) Compañía 
+facpre_Codigo integer($int32) ID de lista → facpre_codigo en MfactrxDto 
+facpre_Nombre string (nullable) Nombre (ej: Precio Contado, Mayorista) 
+invitm_Codigo integer (nullable) Ítem específico al que aplica (si precio por ítem) 
+admuni_Codigo string (nullable) Unidad de medida 
+facpre_Contado number (nullable) Precio de contado → price en Shopify 
+facpre_Minimo number (nullable) Precio mínimo permitido 
+facpre_Perdec integer (nullable) Decimales del precio 
+facpre_Principal integer (nullable) 1 = lista principal / predeterminada 
+ 
+2.7 Mcxctrx — Transacción CxC (POST /api/mcxccte/deudas) 
+Campo Tipo Notas / Descripción 
+admcia_codigo integer($int32) Compañía 
+admsuc_codigo integer($int32) Sucursal 
+cxccte_codigo integer($int32) Cliente → FK a McxccteDto 
+facvdr_codigo integer($int32) Vendedor 
+cxctrx_numero integer($int32) Número de transacción CxC 
+cxctrx_fecha string($date-time) Fecha de la transacción 
+cxctrx_docum integer($int32) Número del documento (factura) 
+cxctrx_vencim string($date-time) Vencimiento 
+admtrx_codigo string (nullable) Tipo de transacción 
+cxctrx_total number($double) Total original 
+cxctrx_pend number($double) Saldo pendiente → balance_pending en map_recibos 
+admmon_codigo string (nullable) Moneda 
+
+
+--- PAGE 9 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 9 de 30 
+Campo Tipo Notas / Descripción 
+cxctrx_totdesc number($double) Total descuentos 
+cxctrx_impuesto number($double) ITBIS 
+admncf_serial string (nullable) NCF asociado → se_ncf en map_invoices 
+admsts_codigo integer($int32) Estatus 
+ 
+2.8 MadmncfDto — Secuencia NCF (POST /api/Factura/GetNCFVendedores) 
+Campo Tipo Notas / Descripción 
+admncf_numero integer($int32) ID de la secuencia NCF 
+admcia_codigo integer($int32) Compañía 
+admsuc_codigo integer($int32) Sucursal 
+facvdr_codigo integer($int32) Vendedor al que corresponde 
+admncf_serie string (nullable) Serie del comprobante (E31, B01, etc.) 
+admtrx_codigo string (nullable) Tipo de transacción 
+admtco_codigo integer($int32) Tipo de comprobante → POST /api/Madmtco/get 
+admncf_numini integer($int32) Número inicial del rango 
+admncf_numfin integer($int32) Número final del rango 
+admncf_ultnum integer($int32) Último número utilizado 
+admsts_codigo integer($int32) Estatus (activo/inactivo) 
+admncf_fechaval string($date-
+time)(nullable) 
+Fecha de validez 
+ 
+2.9 McxcantDto — Anticipos (POST /api/mcxcant/get) 
+Campo Tipo Notas / Descripción 
+admcia_codigo integer($int32) Compañía 
+cxcant_codigo integer($int32) ID del anticipo 
+cxcant_nombre string (nullable) Descripción 
+cxcant_antini integer($int32) Número inicial del rango 
+cxcant_antfin integer($int32) Número final del rango 
+ 
+2.10 MeftcbrDto — Forma de Cobro / Banco 
+Campo Tipo Notas / Descripción 
+admcia_codigo integer($int32) Compañía 
+eftcbr_codigo integer($int32) ID forma de cobro → eftcbr_codigo en meftrcbDto 
+
+
+--- PAGE 10 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 10 de 30 
+Campo Tipo Notas / Descripción 
+eftcbr_refer string (nullable) Referencia 
+eftcbr_nombre string (nullable) Nombre del banco / forma → payment_source en 
+map_recibos 
+ 
+2.11 MfacvdrDto — Vendedor (POST /api/Factura/GetVendedores) 
+NUEVO EN v1.4: el SE expone un endpoint propio para vendedores (POST /api/Factura/GetVendedores), 
+separado de /api/madmusr/get. El middleware debe consultar este endpoint para poblar map_vendedores y 
+asignar facvdr_codigo en las facturas. 
+Campo Tipo Notas / Descripción 
+facvdr_codigo integer($int32) ID del vendedor → facvdr_codigo en 
+MfactrxDto / meftrcbDto 
+admcia_codigo integer($int32) Compañía 
+facvdr_refer string (nullable) Referencia 
+facvdr_nombre string (nullable) Nombre del vendedor 
+facvdr_nolimiteprecio integer (nullable) 1 = sin límite de precio 
+facvdr_permitecambiarprecio integer (nullable) 1 = puede modificar precio en factura 
+ 
+2.12 MfacvisDto — Visita de Vendedor (POST /api/Factura/InsertarVisita) 
+Campo Tipo Notas / Descripción 
+admcia_codigo integer($int32) Compañía 
+facvis_master integer($int32) ID de la visita 
+facvdr_codigo integer($int32) Vendedor → POST /api/Factura/GetVendedores 
+cxccte_codigo integer($int32) Cliente → POST /api/mcxccte/get 
+admvis_razon integer($int32) Razón de la visita (catálogo interno SE) 
+admsts_codigo integer($int32) Estatus 
+admvis_cobro number($double) Monto cobrado en la visita 
+admvis_fecha string (nullable) Fecha y hora 
+admvis_comentario string (nullable) Comentario del vendedor 
+factrx_numero integer($int32) Factura asociada → MfactrxDto.factrx_numero 
+admvis_venta number($double) Monto de venta registrado 
+facvis_latitud string (nullable) Latitud GPS (de la dirección de envío Shopify) 
+facvis_longitud string (nullable) Longitud GPS 
+facvis_numero integer($int32) Correlativo de visita 
+ 
+2.13 MadmimgDto — Imagen (POST /api/Madmimg/get) 
+
+
+--- PAGE 11 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 11 de 30 
+NUEVO EN v1.4: las imágenes se obtienen via POST /api/Madmimg/get enviando el admimg_tabla e 
+admimg_master como filtro. También aparecen como array en meftrcbDto.madmimg. El campo admimg_imagen 
+es Base64; el middleware lo convierte a URL en Shopify. 
+Campo Tipo Notas / Descripción 
+admimg_tabla string (nullable) Tabla origen (ej: INVITM para productos, EFTRCB 
+para recibos) 
+admimg_master integer($int32) ID del registro (ej: invitm_codigo del producto) 
+admimg_linea integer($int32) Orden de la imagen 
+admimg_imagen string($byte)(nullable) Imagen en Base64 → se sube a S3/R2 y se enlaza 
+a Shopify 
+admimg_principal integer($int32) 1 = imagen principal del producto 
+ 
+2.14 TmfacdevDto — Resumen Devoluciones (POST 
+/api/Factura/GetTotalDevoluciones) 
+Campo Tipo Notas / Descripción 
+admcia_codigo integer($int32) Compañía 
+facvdr_codigo integer($int32) Vendedor 
+anio integer($int32) Año 
+mes integer($int32) Mes 
+cantidad integer($int32) Cantidad de devoluciones en el período 
+facdev_valor number($double) Valor total de devoluciones 
+ 
+2.15 tmeftrcbDto — Resumen Cobros (POST /api/mcxccte/GetTotalCobros) 
+Campo Tipo Notas / Descripción 
+admcia_codigo integer($int32) Compañía 
+eftcbr_codigo integer (nullable) Forma de cobro → MeftcbrDto 
+anio integer($int32) Año 
+mes integer($int32) Mes 
+cantidad integer($int32) Cantidad de recibos 
+eftrcb_monto number($double) Monto total cobrado 
+ 
+2.16 PhysicalInventoryUpdateItem — Ajuste Inventario Físico (POST 
+/api/inventario/fisico) 
+NUEVO EN v1.4: endpoint real para aplicar ajustes de inventario físico desde fulfillments de Shopify hacia el SE. 
+Campo Tipo Notas / Descripción 
+batchId string (nullable) ID del lote (idempotencia) = shopify_order_id 
+
+
+--- PAGE 12 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 12 de 30 
+Campo Tipo Notas / Descripción 
+numeroFisico integer($int32) Número del inventario físico en el SE 
+codigoProducto integer($int32) Código del producto → invitm_codigo en 
+map_sku_variant 
+cantidad number($double) Cantidad ajustada 
+referencia string (nullable) Referencia del ajuste 
+usuario string (nullable) Usuario que ejecuta 
+ 
+2.17 Inventario Físico Móvil (GET /api/Minvfismovil/getfisico) 
+NUEVO EN v1.4: endpoint de consulta del inventario físico registrado en dispositivos móviles. El middleware lo 
+usa en la reconciliación de inventario para capturar ajustes realizados desde el campo, complementando el 
+snapshot de POST /api/Minvitm/get. 
+Nota: el DTO de respuesta debe confirmarse con el equipo del SE. Se asume que retorna al menos: sucursal, 
+invitm_codigo, cantidad física contada y fecha del conteo. 
+ 
+  
+
+
+--- PAGE 13 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 13 de 30 
+3. Requerimientos Funcionales 
+3.1 Gestión de Órdenes 
+3.1.1 Recepción de Órdenes desde Shopify 
+El middleware transforma cada orden Shopify al esquema MfactrxDto (una fila por encabezado + una fila por 
+line_item) y la persiste en el SE via POST /api/Factura/Insertar. Antes de insertar consulta POST 
+/api/Factura/GetVendedores, POST /api/Factura/GetNCFVendedores y POST /api/Madmtco/get para completar 
+los campos requeridos. 
+ 
+ID Requerimiento Prioridad Tipo Endpoint SE 
+RF-
+01 
+Recibir y procesar webhook 
+orders/create en ≤ 5 seg (P95). 
+Alta Funcional — 
+RF-
+02 
+Validar firma HMAC-SHA256 de cada 
+webhook antes de procesar. 
+Alta Seguridad — 
+RF-
+03 
+Transformar payload Shopify a 
+MfactrxDto: resolver cxccte_codigo 
+(map_cliente_customer), admsuc_codigo 
+(map_sucursales_locations), 
+invitm_codigo (map_sku_variant), 
+admtco_codigo (POST 
+/api/Madmtco/get), admncf_serial (POST 
+/api/Factura/GetNCFVendedores), 
+facvdr_codigo (POST 
+/api/Factura/GetVendedores). 
+Alta Funcional POST 
+/api/Factura/Insertar 
+RF-
+04 
+Usar factrx_movil_id = shopify_order_id 
+como clave de idempotencia al insertar 
+en el SE. 
+Alta Funcional POST 
+/api/Factura/Insertar 
+RF-
+05 
+Verificar factrx_movil_id en 
+map_order_ids antes de llamar al SE. No 
+crear duplicados. 
+Alta Integridad POST 
+/api/Factura/GetFacturas 
+RF-
+06 
+Capturar webhook orders/updated y 
+actualizar el estado en el SE. 
+Alta Funcional POST 
+/api/Factura/Insertar 
+RF-
+07 
+Encolar en DLQ los webhooks fallidos; 
+reintentar hasta 5 veces con backoff 
+exponencial. 
+Media Resiliencia — 
+ 
+3.1.2 Confirmación de Pago No-Shopify 
+El SE registra pagos externos via POST /api/Meftrcb/InsertarRecibo. El middleware hace polling periódico y 
+procesa solo los meftrcbDto cuyo eftrcb_numero no existe en map_recibos. 
+ 
+ID Requerimiento Prioridad Tipo Endpoint SE 
+RF-
+08 
+Hacer polling al endpoint de recibos del 
+SE. Por cada meftrcbDto, verificar si 
+eftrcb_numero existe en 
+map_recibos.se_recibo_id. Procesar 
+solo los nuevos. 
+Alta Funcional POST 
+/api/Meftrcb/InsertarRecibo 
+
+
+--- PAGE 14 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 14 de 30 
+ID Requerimiento Prioridad Tipo Endpoint SE 
+RF-
+09 
+Actualizar financial_status='paid' en 
+Shopify al detectar meftrcbDto nuevo. 
+Usar eftrcb_monto y admmon_codigo. 
+Alta Funcional Shopify Admin API 
+RF-
+10 
+Registrar en log: eftrcb_numero, 
+cxccte_codigo, eftrcb_monto, 
+admmon_codigo, admmod_codigo, 
+timestamp. 
+Media Auditoría — 
+RF-
+11 
+Reintentar hasta 5 veces si Shopify no 
+está disponible. Trackear intentos en 
+map_recibos.shopify_update_attempts. 
+Alta Resiliencia — 
+RF-
+12 
+Soportar abonos parciales: persistir 
+eftrcb_tpendiente → balance_pending. 
+Procesar cada deftrcbDto del array 
+detalles. 
+Media Funcional — 
+ 
+3.2 Sincronización de Inventario 
+ID Requerimiento Prioridad Tipo Endpoint SE 
+RF-
+13 
+Polling a POST /api/Minvitm/get 
+(body: admcia_codigo). Comparar 
+stock de cada invitm_codigo contra 
+stg_inventory_snapshots. 
+Actualizar Shopify para SKUs con 
+cambio usando 
+shopify_inventory_item_id de 
+map_sku_variant. 
+Alta Funcional POST /api/Minvitm/get 
+RF-
+14 
+Al confirmar fulfillment Shopify, 
+aplicar ajuste en el SE via POST 
+/api/inventario/fisico 
+(codigoProducto = invitm_codigo, 
+batchId = shopify_order_id). 
+Alta Funcional POST /api/inventario/fisico 
+RF-
+14b 
+Incluir GET 
+/api/Minvfismovil/getfisico en el 
+ciclo de reconciliación para 
+capturar conteos físicos móviles y 
+detectar discrepancias generadas 
+desde el campo. 
+Alta Funcional GET 
+/api/Minvfismovil/getfisico 
+RF-
+15 
+Reconciliación cada 30 min: 
+comparar se_stock (POST 
+/api/Minvitm/get + GET 
+/api/Minvfismovil/getfisico) vs 
+shopify_stock en 
+stg_inventory_snapshots. 
+Alta Integridad POST /api/Minvitm/get 
+RF-
+16 
+Si discrepancy ≠ 0, ajustar Shopify 
+al valor del SE y emitir alerta. 
+Actualizar reconciled = TRUE en 
+stg_inventory_snapshots. 
+Alta Integridad Shopify Admin API 
+RF-
+17 
+Mantener map_sku_variant: 
+invitm_codigo ↔ shopify_variant_id 
+↔ shopify_inventory_item_id. 
+Poblado desde POST 
+/api/Minvitm/get. 
+Alta Configuración POST /api/Minvitm/get 
+
+
+--- PAGE 15 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 15 de 30 
+ID Requerimiento Prioridad Tipo Endpoint SE 
+RF-
+18 
+Soportar múltiples sucursales via 
+map_sucursales_locations: 
+admsuc_codigo (POST 
+/api/madmsuc/get) ↔ 
+shopify_location_id. 
+Media Funcional POST /api/madmsuc/get 
+RF-
+19 
+Si stock = 0 en el SE, marcar 
+producto como sold_out en 
+Shopify. Actualizar active = FALSE 
+en map_sku_variant. 
+Alta Funcional Shopify Admin API 
+ 
+3.3 Sincronización de Productos y Catálogo 
+ID Requerimiento Priorida
+d 
+Tipo Endpoint SE 
+RF
+-20 
+Al detectar invitm_codigo nuevo sin 
+entrada en map_sku_variant, crear 
+producto en Shopify con título 
+(invitm_nombre), precio 
+(facpre_Contado de POST 
+/api/Mfacpre/get con 
+facpre_Principal=1), imágenes (POST 
+/api/Madmimg/get con 
+admimg_tabla='INVITM' y 
+admimg_master=invitm_codigo). 
+Alta Funcional POST /api/Minvitm/get, POST 
+/api/Madmimg/get 
+RF
+-
+20
+b 
+Usar POST /api/Minvitm/LectorPrecio 
+para obtener imagen y precio por SKU 
+individual al sincronizar un producto 
+específico. 
+Media Funcional POST /api/Minvitm/LectorPrecio 
+RF
+-21 
+Polling a POST /api/Mfacpre/get cada 2 
+min. Si facpre_Contado difiere del valor 
+en BD intermedia, actualizar price en 
+Shopify en el mismo ciclo. 
+Alta Funcional POST /api/Mfacpre/get 
+RF
+-22 
+Detectar productos inactivos via POST 
+/api/Minvitm/get. Si estado cambia a 
+inactivo, despublicar en Shopify y 
+marcar active=FALSE en 
+map_sku_variant. 
+Alta Funcional POST /api/Minvitm/get 
+RF
+-23 
+Al actualizar descripción/datos en 
+Shopify, propagar cambios al SE via 
+POST /api/mcxccte/Actualizar. 
+Media Funcional POST /api/mcxccte/Actualizar 
+RF
+-24 
+Mantener map_sku_variant con 
+trazabilidad: invitm_codigo ↔ 
+shopify_product_id ↔ 
+shopify_variant_id. 
+Alta Trazabilidad — 
+RF
+-25 
+Sincronizar familias (GET 
+/api/Minvitm/familias) → colecciones 
+Shopify via map_familias_collections. 
+Sincronizar marcas (GET 
+/api/Minvitm/marcas) → tags Shopify via 
+map_marcas_tags. 
+Baja Funcional GET /api/Minvitm/familias, GET 
+/api/Minvitm/marcas 
+RF
+-
+Usar POST 
+/api/Factura/GetVentasProductosFamilia 
+y POST 
+Media Observabilid
+ad 
+POST 
+/api/Factura/GetVentasProductosF
+amilia 
+
+
+--- PAGE 16 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 16 de 30 
+ID Requerimiento Priorida
+d 
+Tipo Endpoint SE 
+25
+b 
+/api/Factura/GetDetalleVentasProductos
+Familia para alimentar el dashboard de 
+ventas por categoría (RNF-17). 
+RF
+-
+25
+c 
+Usar GET 
+/api/Factura/ProductosComprados para 
+historial de compras por cliente; exponer 
+en el dashboard o en metafields de 
+Shopify. 
+Baja Funcional GET 
+/api/Factura/ProductosComprados 
+RF
+-26 
+Sincronizar variantes manteniendo la 
+relación invitm_codigo (padre) → 
+shopify_variant_id. 
+Alta Funcional POST /api/Minvitm/get 
+ 
+3.4 Facturación 
+ID Requerimiento Prioridad Tipo Endpoint SE 
+RF-
+27 
+Al confirmar pago, emitir factura 
+en el SE (POST 
+/api/Factura/Insertar con 
+MfactrxDto completo). Persistir 
+admncf_serial en 
+map_invoices.se_ncf. Obtener tipo 
+de comprobante de POST 
+/api/Madmtco/get. 
+Alta Funcional POST /api/Factura/Insertar, POST 
+/api/Madmtco/get 
+RF-
+28 
+Enviar factura emitida al email del 
+customer de Shopify. El PDF se 
+genera a partir del MfactrxDto 
+retornado por el SE. 
+Alta Funcional — 
+RF-
+29 
+Si cliente solicita factura desde 
+Shopify, invocar POST 
+/api/Factura/Insertar y retornar el 
+documento generado. 
+Alta Funcional POST /api/Factura/Insertar 
+RF-
+30 
+Almacenar PDF en S3/R2. 
+Persistir URL en 
+map_invoices.pdf_url. 
+Media Funcional — 
+RF-
+31 
+Registrar en map_invoices estado: 
+emitted → sent → error → 
+cancelled. 
+Media Auditoría — 
+RF-
+32 
+Al procesar reembolso (webhook 
+refunds/create), consultar POST 
+/api/Factura/GetTotalDevoluciones 
+(TmfacdevDto) y emitir nota de 
+crédito 
+(invoice_type='credit_note'). 
+Media Funcional POST 
+/api/Factura/GetTotalDevoluciones 
+RF-
+33 
+Al confirmar entrega (fulfillment), 
+registrar visita del vendedor en el 
+SE via POST 
+/api/Factura/InsertarVisita con las 
+coordenadas GPS de la dirección 
+de envío de Shopify. 
+Baja Funcional POST /api/Factura/InsertarVisita 
+ 
+
+
+--- PAGE 17 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 17 de 30 
+  
+
+
+--- PAGE 18 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 18 de 30 
+4. Requerimientos No Funcionales 
+4.1 Rendimiento y Escalabilidad 
+ID Requerimiento Métrica Prioridad 
+RNF-01 Procesar webhooks de órdenes en tiempo máximo 
+(todos los POST al SE deben enviar body con 
+admcia_codigo; considerar latencia adicional). 
+P95 ≤ 5s Alta 
+RNF-02 Soportar 500 órdenes/hora sin degradación. 500 ord/hr Alta 
+RNF-03 Sync de inventario completarse en ≤ 10s tras 
+detección de cambio en POST /api/Minvitm/get. 
+≤ 10s Alta 
+RNF-04 Escalable horizontalmente (Docker + orquestador). Horizontal Media 
+ 
+4.2 Disponibilidad y Resiliencia 
+ID Requerimiento Métrica Prioridad 
+RNF-05 Disponibilidad mínima del middleware. 99.5% uptime Alta 
+RNF-06 Retener eventos en cola hasta 24h si el SE no está 
+disponible. 
+24h retención Alta 
+RNF-07 Circuit breaker para aislar fallos del SE. Pattern CB Alta 
+RNF-08 Todas las operaciones críticas idempotentes 
+(factrx_movil_id, eftrcb_numero, batchId). 
+Idempotencia Alta 
+ 
+4.3 Seguridad 
+ID Requerimiento Estándar Prioridad 
+RNF-09 Toda comunicación por HTTPS/TLS 1.2+. TLS 1.2+ Alta 
+RNF-10 Credenciales de API en gestor de secretos. Vault/KMS Alta 
+RNF-11 Validar firma HMAC-SHA256 en cada webhook de 
+Shopify. 
+HMAC-SHA256 Alta 
+RNF-12 Autenticación OAuth 2.0 o API Key con rotación para 
+el SE. 
+OAuth 2.0 Alta 
+RNF-13 Datos personales (cxccte_Nombre, cxccte_Rnc, 
+shopify_email) conforme a normativas locales. 
+Privacidad Alta 
+ 
+4.4 Observabilidad y Monitoreo 
+ID Requerimiento Herramienta Prioridad 
+RNF-14 Logs estructurados (JSON) con traceId, timestamp, 
+origen, event_type y resultado. 
+ELK / Datadog Alta 
+
+
+--- PAGE 19 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 19 de 30 
+ID Requerimiento Herramienta Prioridad 
+RNF-15 Trazabilidad distribuida de extremo a extremo por 
+orden. 
+OpenTelemetry Media 
+RNF-16 Alertas si tasa de error > 2% o DLQ > 10 mensajes. PagerDuty / SNS Alta 
+RNF-17 Dashboard en tiempo real: órdenes, cobros 
+(tmeftrcbDto), ventas por familia 
+(GetVentasProductosFamilia), facturas emitidas, 
+errores. 
+Grafana Media 
+ 
+  
+
+
+--- PAGE 20 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 20 de 30 
+5. Arquitectura Técnica Propuesta 
+5.1 Componentes Principales 
+Componente Descripción 
+Shopify (canal) Storefront, Admin API GraphQL/REST, webhooks. Lee y escribe productos, 
+inventario, órdenes y fulfillment. 
+Middleware (núcleo) Node.js / Python que orquesta: Event Bus, Order Service, Payment Service 
+(polling meftrcbDto), Inventory Sync (polling POST /api/Minvitm/get + GET 
+/api/Minvfismovil/getfisico), Product Sync (POST /api/Madmimg/get), Invoice 
+Service. 
+Sistema Externo API REST. Todos los endpoints de consulta reciben el body como POST 
+(admcia_codigo obligatorio). No emite webhooks; el middleware implementa 
+polling para detectar cambios. 
+Cola de mensajes Redis + BullMQ / AWS SQS: desacopla servicios, garantiza entrega, maneja 
+reintentos con DLQ. 
+Almacenamiento de archivos AWS S3 / Cloudflare R2 para PDFs de facturas (map_invoices.pdf_url) e 
+imágenes procesadas (admimg_imagen → URL). 
+Caché Redis: rate-limiting, idempotencia (eftrcb_numero / factrx_movil_id), caché de 
+MfacpreDto (POST /api/Mfacpre/get) y MadmncfDto. 
+Base de datos intermedia PostgreSQL: event_inbox/outbox, tablas de mapeo (map_order_ids, 
+map_sku_variant, map_cliente_customer, map_invoices, map_recibos, 
+map_sucursales_locations, map_familias_collections, map_marcas_tags), 
+stg_inventory_snapshots, map_parametros_cache. 
+ 
+5.2 Stack Tecnológico 
+Capa Tecnología principal Alternativa 
+Runtime Node.js 20 LTS + Fastify Python 3.12 + FastAPI 
+Cola de mensajes Redis + BullMQ AWS SQS / RabbitMQ 
+Caché / Idempotencia Redis 7 Memcached 
+BD Intermedia PostgreSQL 16 MySQL 8 
+Almacenamiento facturas e 
+imágenes 
+AWS S3 Cloudflare R2 
+Observabilidad OpenTelemetry + Grafana Datadog 
+Secretos AWS Secrets Manager HashiCorp Vault 
+Contenedores Docker + ECS / Railway Kubernetes 
+CI/CD GitHub Actions GitLab CI 
+ 
+  
+
+
+--- PAGE 21 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 21 de 30 
+6. Catálogo Completo de Endpoints del Sistema Externo 
+Todos los endpoints de consulta del SE reciben el body como POST (incluyendo admcia_codigo como mínimo). 
+Los únicos que usan GET son aquellos marcados explícitamente. El middleware nunca modifica la estructura de 
+los contratos del SE. 
+ 
+6.1 Inventario 
+Método Endpoint DTO Descripción 
+GET /api/Minvfismovil/getfisico — (confirmar con SE) NUEVO: Consulta 
+conteos de inventario 
+físico móvil. Usado en 
+reconciliación (RF-14b, 
+RF-15). 
+POST /api/inventario/fisico UpdatePhysicalInventoryDto NUEVO: Aplica ajuste 
+de stock físico desde 
+fulfillment Shopify (RF-
+14). 
+ 
+6.2 Minvitm — Productos 
+Método Endpoint DTO Descripción 
+POST /api/Minvitm/LectorPrecio MadmimgDto + 
+precio 
+Producto con imagen y precio por 
+SKU individual (RF-20b). 
+POST /api/Minvitm/get — (ítem + stock) Listado paginado de productos con 
+stock, precio y estado activo (RF-
+13, RF-20, RF-22). 
+GET /api/Minvitm/familias — (familia) Familias/categorías → 
+map_familias_collections (RF-25). 
+GET /api/Minvitm/marcas — (marca) Marcas/grupos → 
+map_marcas_tags (RF-25). 
+ 
+6.3 Facturación 
+Método Endpoint DTO Descripción 
+POST /api/Factura/GetNCFVendedores MadmncfDto[] NCFs 
+disponibles por 
+vendedor (RF-
+27). Consultar 
+antes de insertar 
+factura. 
+POST /api/Factura/GetTotalDevoluciones TmfacdevDto[] Resumen 
+devoluciones por 
+período (RF-32). 
+POST /api/Factura/GetVentasProductosFamilia — NUEVO: Ventas 
+por familia de 
+
+
+--- PAGE 22 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 22 de 30 
+Método Endpoint DTO Descripción 
+productos (RNF-
+17 dashboard). 
+POST /api/Factura/GetDetalleVentasProductosFamilia — NUEVO: Detalle 
+de ventas por 
+familia (RNF-17 
+dashboard). 
+POST /api/Factura/GetVendedores MfacvdrDto[] NUEVO: 
+Catálogo de 
+vendedores 
+(reemplaza uso 
+de madmusr 
+para 
+facturación). 
+POST /api/Factura/GetFacturas MfactrxDto[] Consultar 
+facturas 
+existentes 
+(reconciliación, 
+RF-05). 
+POST /api/Factura/InsertarVisita MfacvisDto Registrar visita 
+de vendedor al 
+confirmar 
+entrega (RF-33). 
+GET /api/Factura/ProductosComprados — NUEVO: 
+Historial de 
+productos 
+comprados por 
+cliente (RF-25c). 
+POST /api/Factura/Insertar MfactrxDto Crear 
+factura/orden 
+desde Shopify. 
+Incluye 
+inventario y 
+auditoría (RF-03, 
+RF-27, RF-29). 
+GET /api/Factura/GetSumPedido — Sumatoria de 
+pedidos por 
+criterio 
+(dashboard). 
+ 
+6.4 Administración 
+Método Endpoint DTO Descripción 
+POST /api/madmcia/get — Datos de compañía → 
+admcia_codigo fijo (obligatorio en 
+todo body). 
+POST /api/Madmimg/get MadmimgDto[] NUEVO endpoint independiente: 
+imágenes por tabla y master ID (RF-
+20). 
+POST /api/madmpar/get — Parámetros de configuración → 
+map_parametros_cache. 
+
+
+--- PAGE 23 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 23 de 30 
+Método Endpoint DTO Descripción 
+POST /api/madmsuc/get — Sucursales → 
+map_sucursales_locations (RF-18). 
+POST /api/Madmtco/get — Tipos de comprobante fiscal → 
+admtco_codigo en MfactrxDto. 
+POST /api/madmusr/get — Usuarios del sistema (para auditoría 
+y log). 
+ 
+6.5 Clientes y CxC 
+Método Endpoint DTO Descripción 
+POST /api/mcxcant/get McxcantDto[] Anticipos de clientes → 
+eftrcb_avance en meftrcbDto. 
+POST /api/mcxccte/CondPago — Condiciones de pago → 
+cxccpg_codigo en MfactrxDto. 
+POST /api/mcxccte/deudas Mcxctrx[] Deudas pendientes por cliente 
+(validación de crédito). 
+POST /api/mcxccte/GetCobradores — Cobradores por zona/cliente → 
+cobrador_id en 
+map_cliente_customer. 
+POST /api/mcxccte/GetTotalCobros tmeftrcbDto[] Total cobros por período (RNF-17 
+dashboard). 
+POST /api/mcxccte/get McxccteDto[] Listado de clientes → 
+map_cliente_customer. 
+POST /api/mcxccte/Actualizar — Actualizar cliente en el SE desde 
+cambios en Shopify (RF-23). 
+ 
+6.6 Recibos y Precios 
+Método Endpoint DTO Descripción 
+POST /api/Meftrcb/InsertarRecibo meftrcbDto Registrar / consultar recibos de 
+pago no-Shopify (RF-08 a RF-12). 
+POST /api/Mfacpre/get MfacpreDto[] Listas de precio → sync de precios 
+en Shopify (RF-21). 
+ 
+  
+
+
+--- PAGE 24 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 24 de 30 
+7. Mapeo de Datos Principal 
+7.1 Orden Shopify → MfactrxDto (POST /api/Factura/Insertar) 
+Todos los campos que requieren lookups previos deben resolverse antes de llamar al endpoint. El body del 
+POST debe incluir admcia_codigo (obtenido una vez de POST /api/madmcia/get y cacheado). 
+ 
+Campo Shopify Campo MfactrxDto Transformación / Fuente 
+order.id factrx_movil_id Clave de idempotencia. String directo. 
+order.name (#1001) factrx_refer Mapeo directo. 
+— (config) admcia_codigo POST /api/madmcia/get → valor fijo 
+cacheado. 
+— (map) admsuc_codigo map_sucursales_locations por 
+shopify_location_id (POST 
+/api/madmsuc/get). 
+order.customer.id cxccte_codigo map_cliente_customer.shopify_customer_id 
+→ se_cliente_id (integer). 
+order.customer.first+last name cxccte_nombre Concatenar nombre completo. 
+order.currency admmon_codigo ISO 4217 directo. 
+order.total_price factrx_neto Decimal(12,2). 
+order.total_tax factrx_totimp ITBIS. Decimal(12,2). 
+order.subtotal_price factrx_valor Decimal(12,2). 
+order.total_discounts factrx_descgral Decimal(12,2). 
+order.discount_codes[0].percentage factrx_pdescgral Porcentaje. 0 si no aplica. 
+order.created_at factrx_fecha ISO 8601 → formato del SE. 
+line_item.variant_id invitm_codigo map_sku_variant.shopify_variant_id → 
+se_sku (integer). 
+line_item.title invitm_nombre Texto directo. 
+line_item.quantity factrx_cant Decimal(10,2). 
+line_item.price factrx_precio Decimal(12,2). 
+line_item.total_discount factrx_descd Decimal(12,2). 
+— (POST 
+/api/Factura/GetVendedores) 
+facvdr_codigo Vendedor por defecto de la compañía. 
+— (POST /api/Madmtco/get) admtco_codigo Tipo de comprobante por defecto. 
+— (POST 
+/api/Factura/GetNCFVendedores) 
+admncf_serial Primer NCF disponible del vendedor 
+(admncf_ultnum < admncf_numfin). 
+— (POST /api/Mfacpre/get con 
+facpre_Principal=1) 
+facpre_codigo Lista de precio predeterminada del cliente 
+(McxccteDto.facpre_Codigo). 
+order.customer.phone cxccte_telef1 Directo. 
+ 
+7.2 meftrcbDto → map_recibos 
+
+
+--- PAGE 25 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 25 de 30 
+Campo meftrcbDto Campo map_recibos Transformación 
+eftrcb_numero se_recibo_id String(50). Clave de idempotencia. 
+eftrcb_monto amount Decimal(12,2). 
+admmon_codigo currency ISO 4217. 
+admmod_codigo / 
+eftcbr_nombre 
+payment_source POST /api/madmusr/get o 
+MeftcbrDto.eftcbr_nombre para nombre 
+legible. 
+eftrcb_refer reference Directo. 
+eftrcb_tpendiente balance_pending Decimal(12,2). 
+cxccte_codigo order_map_id Lookup en map_order_ids por 
+se_cliente_id. 
+ 
+7.3 POST /api/Madmimg/get → Imagen de Producto en Shopify 
+Acción Detalle 
+Body del POST {admimg_tabla: 'INVITM', admimg_master: invitm_codigo} 
+Filtrado Ordenar por admimg_linea. La imagen con admimg_principal=1 se asigna 
+como imagen principal en Shopify. 
+Conversión admimg_imagen (Base64) → subir a S3/R2 → obtener URL pública → asignar 
+a product.images en Shopify. 
+Frecuencia Al crear o actualizar un producto (RF-20). No en el ciclo de polling de 
+inventario. 
+ 
+  
+
+
+--- PAGE 26 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 26 de 30 
+8. Base de Datos Intermedia del Middleware 
+PostgreSQL propia del middleware. No almacena datos transaccionales definitivos; la fuente de verdad es el SE. 
+Su función es orquestar el ciclo de vida de cada evento y garantizar la trazabilidad de todas las transformaciones. 
+ 
+8.1 Tablas de Mapeo Clave 
+Tabla Campo SE Campo Shopify Propósito / RF 
+map_order_ids factrx_movil_id / 
+factrx_numero 
+order.id / order.name Idempotencia órdenes 
+(RF-04, RF-05) 
+map_sku_variant invitm_codigo (integer) shopify_variant_id, 
+shopify_inventory_item_id 
+Sync inventario, precios e 
+imágenes (RF-13, RF-17, 
+RF-20) 
+map_cliente_customer cxccte_Codigo (integer) shopify_customer_id Asociar órdenes a 
+clientes del SE 
+map_invoices factrx_numero, 
+admncf_serial 
+order.id Ciclo de facturación (RF-
+27 a RF-32) 
+map_recibos eftrcb_numero (integer) order.id (financial_status) Pagos no-Shopify (RF-08 
+a RF-12) 
+map_sucursales_locations admsuc_codigo shopify_location_id Multi-sucursal (RF-18) 
+map_familias_collections familia del SE shopify_collection_id Familias → colecciones 
+(RF-25) 
+map_marcas_tags marca del SE shopify_tag Marcas → tags Shopify 
+stg_inventory_snapshots se_stock (POST 
+/api/Minvitm/get + GET 
+/api/Minvfismovil/getfisico) 
+shopify_stock Reconciliación (RF-15, 
+RF-16) 
+map_parametros_cache admcia_codigo, 
+admtco_codigo, 
+admncf_serie 
+— Caché durable de 
+parámetros del SE 
+ 
+8.2 Política de Retención 
+Tabla Retención Política 
+event_inbox / event_outbox 
+(payloads crudos) 
+30 días Purga automática por columna purge_after 
+(TIMESTAMPTZ) 
+map_* (tablas de mapeo de 
+IDs) 
+Permanente Nunca se eliminan mientras exista la relación entre 
+sistemas 
+Registros de estado de eventos 90 días Para soporte, auditoría y dashboard (RNF-17) 
+ 
+  
+
+
+--- PAGE 27 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 27 de 30 
+9. Casos de Uso Críticos y Manejo de Errores 
+Escenario Comportamiento esperado Mecanismo 
+Webhook duplicado de 
+Shopify 
+No crear factura duplicada Verificar factrx_movil_id en map_order_ids 
+antes de POST /api/Factura/Insertar 
+SE caído Retener en cola hasta 24h BullMQ + backoff exponencial; 
+event_inbox.retry_count 
+Shopify caído al actualizar 
+pago 
+Reintentar hasta 5 veces Cola con delay; 
+map_recibos.shopify_update_attempts 
+NCF agotado 
+(admncf_ultnum >= 
+admncf_numfin) 
+Bloquear emisión + alertar Validar MadmncfDto antes de POST 
+/api/Factura/Insertar; alerta automática 
+POST al SE sin 
+admcia_codigo 
+Rechazo del SE (400/422) Middleware siempre antepone 
+admcia_codigo desde 
+map_parametros_cache 
+Conflicto de inventario 
+(doble venta) 
+Ajustar Shopify al valor del SE stg_inventory_snapshots.discrepancy ≠ 0 
+→ Inventory Sync + alerta 
+Imagen Base64 inválida 
+(POST /api/Madmimg/get) 
+Omitir imagen; continuar sync Log de error en event_outbox; producto se 
+crea sin imagen; reintentar imagen en 
+siguiente ciclo 
+Producto en SE sin mapeo 
+Shopify 
+Crear producto nuevo 
+automáticamente 
+Product Sync detecta ausencia en 
+map_sku_variant → crea + persiste mapeo 
+Factura fallida en SE Reintentar 3 veces + alertar map_invoices.status = 'error'; Invoice 
+Service + notificación al equipo 
+Reembolso en Shopify Nota de crédito en SE webhook refunds/create → consultar POST 
+/api/Factura/GetTotalDevoluciones → 
+Credit Note Service 
+Timeout API SE > 30s Circuit breaker activa fallback event_outbox.status = 'failed'; opossum / 
+resilience4j 
+Cliente Shopify sin 
+equivalente en SE 
+Crear cliente en SE Ausencia en map_cliente_customer → 
+POST /api/mcxccte/Actualizar → persiste 
+mapeo 
+ 
+  
+
+
+--- PAGE 28 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 28 de 30 
+10. Plan de Implementación por Fases 
+Fase Duración Entregables clave Endpoints SE involucrados 
+Fase 0 1–2 sem Documentación API SE, credenciales 
+Shopify, ambiente dev, confirmar DTO 
+de GET /api/Minvfismovil/getfisico 
+POST /api/madmcia/get, POST 
+/api/madmpar/get 
+Fase 1 2–3 sem Middleware base + webhooks + 
+POST /api/Factura/Insertar 
+POST /api/Factura/Insertar, POST 
+/api/Factura/GetVendedores, POST 
+/api/Madmtco/get, POST 
+/api/Factura/GetNCFVendedores, POST 
+/api/mcxccte/get, POST /api/madmsuc/get 
+Fase 2 2 sem Pagos no-Shopify + actualización 
+Shopify 
+POST /api/Meftrcb/InsertarRecibo, POST 
+/api/mcxccte/deudas, POST /api/mcxcant/get 
+Fase 3 2–3 sem Sync inventario + inventario físico + 
+reconciliación 
+POST /api/Minvitm/get, GET 
+/api/Minvfismovil/getfisico, POST 
+/api/inventario/fisico 
+Fase 4 2–3 sem Sync productos, imágenes y precios POST /api/Minvitm/get, POST 
+/api/Minvitm/LectorPrecio, POST 
+/api/Madmimg/get, POST /api/Mfacpre/get, GET 
+/api/Minvitm/familias, GET /api/Minvitm/marcas 
+Fase 5 2 sem Facturación + notas de crédito + 
+visitas 
+POST /api/Factura/Insertar, POST 
+/api/Factura/GetTotalDevoluciones, POST 
+/api/Factura/InsertarVisita 
+Fase 6 2 sem Observabilidad, dashboards, alertas, 
+pruebas de carga 
+POST /api/Factura/GetVentasProductosFamilia, 
+POST 
+/api/Factura/GetDetalleVentasProductosFamilia, 
+GET /api/Factura/ProductosComprados, POST 
+/api/mcxccte/GetTotalCobros 
+Fase 7 1 sem Go-live, monitoreo intensivo, ajustes 
+post-producción 
+Todos 
+Duración total estimada: 14 – 18 semanas. 
+ 
+  
+
+
+--- PAGE 29 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 29 de 30 
+11. Criterios de Aceptación 
+• 100% de las órdenes Shopify persistidas en el SE (POST /api/Factura/Insertar) durante 48h de prueba, 
+sin duplicados (verificado por factrx_movil_id en map_order_ids). 
+• Recibos nuevos detectados por polling (eftrcb_numero no existente en map_recibos) actualizan 
+financial_status en Shopify en < 30s en el 95% de los casos. 
+• Inventario Shopify difiere del SE (POST /api/Minvitm/get) en < 0.5% tras 24h de operación simultánea. 
+• Conteos de GET /api/Minvfismovil/getfisico se reflejan correctamente en stg_inventory_snapshots dentro 
+del ciclo de reconciliación de 30 min. 
+• Cambios de precio (facpre_Contado en POST /api/Mfacpre/get) se reflejan en Shopify en < 2 min. 
+• Imágenes de productos (POST /api/Madmimg/get) se sincronizan correctamente a Shopify al crear o 
+actualizar un producto. 
+• ≥ 98% de las facturas (POST /api/Factura/Insertar con admncf_serial válido) se generan y envían al 
+cliente tras confirmación de pago. 
+• El sistema soporta 500 órdenes/hora sin degradación > 10% en prueba de carga. 
+• Tasa de error general del middleware < 0.5% en condiciones normales. 
+• Dashboard (RNF-17) muestra métricas de POST /api/Factura/GetVentasProductosFamilia y POST 
+/api/mcxccte/GetTotalCobros en tiempo real con retraso ≤ 60s. 
+ 
+  
+
+
+--- PAGE 30 ---
+LEVANTAMIENTO DE REQUERIMIENTOS — Integración Shopify – SE  |  CONFIDENCIAL  |  v1.4 
+Confidencial – Uso interno  |  Página 30 de 30 
+12. Supuestos y Restricciones 
+12.1 Supuestos 
+• Todos los endpoints de consulta del SE reciben el body como POST con admcia_codigo como campo 
+mínimo obligatorio. 
+• GET /api/Minvfismovil/getfisico devuelve al menos: sucursal, invitm_codigo, cantidad física y fecha del 
+conteo. Su DTO exacto se confirmará en la Fase 0. 
+• POST /api/Factura/GetVendedores es el endpoint canónico para obtener facvdr_codigo (no POST 
+/api/madmusr/get, que es para usuarios del sistema). 
+• Los DTOs del SE (MfactrxDto, meftrcbDto, McxccteDto, etc.) no cambiarán su estructura durante el 
+desarrollo. 
+• admcia_codigo es un valor fijo de la compañía, obtenido una vez y cacheado en 
+map_parametros_cache. 
+• Se cuenta con ambientes de desarrollo/staging separados para Shopify y SE antes del inicio de Fase 1. 
+• La política de retención de datos (sección 8.2) es aprobada por los stakeholders antes de Fase 1. 
+ 
+12.2 Restricciones 
+• La base de datos del SE no se modifica estructuralmente; el middleware solo consume la API del SE. 
+• El SE no emite webhooks; toda detección de cambios es por polling y comparación contra la BD 
+intermedia. 
+• El middleware no almacenará datos transaccionales definitivos (retención máxima: 90 días para logs, 30 
+días para payloads crudos). 
+• No se almacenarán datos de tarjetas de crédito en ningún componente del middleware. 
+• Los cálculos de precio, descuento, ITBIS y NCF son responsabilidad del SE; el middleware consume los 
+valores ya calculados (factrx_neto, admncf_serial, etc.). 
+ 
+ 

@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.sqlite3
+*.log
+.env
+.env.*
+.venv/
+venv/
+instance/
+.webassets-cache
+.pytest_cache/
+pytest-cache-files-*/
+.coverage
+htmlcov/
+
+# Docker
+*.tgz
+*.tar
+
+# IDE
+.vscode/
+.idea/

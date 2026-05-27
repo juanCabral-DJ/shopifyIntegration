@@ -1,0 +1,502 @@
+
+
+--- PAGE 1 ---
+DISEÑO TÉCNICO   
+ Middleware Shopify – Sistema Externo   
+Stack: FastAPI · PostgreSQL · Redis · Celery/ARQ   
+Versión: 1.0 – Diseño inicial   
+Fecha: 11 de mayo de 2026   
+**Basado en:** `Levantamiento_Requerimientos_Shopify_v1_4_SE`   
+**Clasificación:** Confidencial   
+  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+
+--- PAGE 2 ---
+1. Arquitectura General 
+FastAPI actúa como puerta de entrada para webhooks de Shopify y endpoints de sincronización o 
+retry manual. Todo el trabajo pesado se delega a workers asíncronos usando Celery, RQ o ARQ, con 
+Redis como broker y backend de resultados. 
+PostgreSQL funciona como capa de idempotencia, trazabilidad y orquestación. La fuente de 
+verdad transaccional permanece en el Sistema Externo, en adelante SE. El middleware no 
+almacena datos fiscales ni transaccionales definitivos. 
+1.1 Principio central  
+- FastAPI no guarda ventas como sistema maestro. 
+- Guarda eventos, mappings, snapshots y estados. 
+- Todo lo fiscal, pagos, NCF , inventario final y facturación se confirma contra el SE. 
+- Esto protege contra webhooks duplicados, caídas del SE, reintentos y diferencias de inventario. 
+1.2 Componentes del sistema  
+Componente Rol 
+FastAPI Recibe webhooks Shopify, expone endpoints de 
+sync y retry internos, valida HMAC. 
+Celery / ARQ Workers asíncronos para insertar facturas, 
+sincronizar productos, precios, inventario, 
+imágenes y recibos. 
+Redis Broker de tareas, caché de idempotencia y 
+caché temporal de DTOs del SE. 
+PostgreSQL Tablas de mapeo, event inbox/outbox, 
+snapshots de inventario y caché durable de 
+parámetros. 
+Sistema Externo API REST. Fuente de verdad de productos, 
+precios, stock, facturas y recibos. 
+Shopify Canal de ventas. Emite webhooks. Recibe 
+actualizaciones de inventario, precios e 
+imágenes. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+
+--- PAGE 3 ---
+2. Estructura de Carpetas del Proyecto 
+middleware/ 
+├── app/ 
+│   ├── main.py 
+│   ├── config.py 
+│   ├── dependencies.py 
+│   │ 
+│   ├── routers/ 
+│   │   ├── webhooks.py 
+│   │   ├── sync.py 
+│   │   ├── admin.py 
+│   │   └── reports.py 
+│   │ 
+│   ├── services/ 
+│   │   ├── shopify_service.py 
+│   │   ├── se_client.py 
+│   │   ├── order_service.py 
+│   │   ├── payment_service.py 
+│   │   ├── inventory_service.py 
+│   │   ├── product_service.py 
+│   │   └── invoice_service.py 
+│   │ 
+│   ├── transformers/ 
+│   │   ├── shopify_to_mfactrx.py 
+│   │   └── se_to_shopify_product.py 
+│   │ 
+│   └── db/ 
+│       ├── models.py 
+
+
+--- PAGE 4 ---
+│       └── repositories.py 
+│ 
+├── workers/ 
+│   └── jobs.py 
+│ 
+├── migrations/ 
+├── tests/ 
+├── Dockerfile 
+├── docker-compose.yml 
+└── pyproject.toml 
+3. Endpoints del Middleware 
+3.1 Health  
+Método Endpoint Descripción 
+GET /health Liveness probe. Retorna 200 
+OK con versión y timestamp. 
+GET /ready Readiness probe. Verifica 
+conexión a DB y Redis. 
+3.2 Webhooks Shopify  
+Método Endpoint Descripción 
+POST /webhooks/shopify/orders/create Crea factura en el SE. Valida 
+HMAC, guarda en 
+`event_inbox` y encola job. 
+POST /webhooks/shopify/orders/paid Confirma pago. Actualiza 
+estado en `map_invoices`. 
+POST /webhooks/shopify/orders/cancelled Cancela factura en el SE y 
+actualiza `map_order_ids`. 
+POST /webhooks/shopify/refunds/create Genera nota de crédito en el 
+SE. 
+POST /webhooks/shopify/fulfillments/create Aplica ajuste de inventario 
+físico vía 
+`/api/inventario/fisico`. 
+POST /webhooks/shopify/customers/create Crea o mapea cliente en el 
+SE. 
+POST /webhooks/shopify/customers/update Propaga cambios de cliente 
+al SE. 
+ 
+
+
+--- PAGE 5 ---
+3.3 Sincronización manual  
+Método Endpoint Descripción 
+POST /sync/products Dispara sync completo de 
+productos desde 
+`/api/Minvitm/get`. 
+POST /sync/prices Dispara sync de precios desde 
+`/api/Mfacpre/get`. 
+POST /sync/images Dispara sync de imágenes 
+desde `/api/Madmimg/get`. 
+POST /sync/inventory Polling de stock SE → Shopify. 
+POST /sync/inventory/reconcile Reconciliación completa: SE + 
+inventario físico móvil vs 
+Shopify. 
+POST /sync/branches Sincroniza sucursales SE → 
+Shopify locations. 
+POST /sync/customers Sincroniza clientes SE → 
+Shopify customers. 
+3.4 Retry manual  
+Método Endpoint Descripción 
+POST /orders/{shopify_order_id}/retry Reintenta insertar la factura 
+en el SE. 
+POST /payments/{shopify_order_id}/retry Reintenta actualizar estado 
+financiero en Shopify. 
+POST /invoices/{shopify_order_id}/retry Reintenta emitir o enviar 
+factura al cliente. 
+ 3.5 Consulta de mappings y reportes  
+Método Endpoint Descripción 
+GET /mappings/skus Lista `map_sku_variant`. 
+GET /mappings/customers Lista`map_cliente_customer`. 
+GET /mappings/orders Lista `map_order_ids`. 
+GET /inventory/snapshots Últimos snapshots por SKU. 
+GET /reports/sales-by-family Proxy a ventas por familia del 
+SE. 
+GET /reports/purchased-products Proxy a productos comprados 
+del SE. 
+GET /events Lista `event_inbox` / 
+`event_outbox` con filtros. 
+ 
+ 
+ 
+ 
+
+
+--- PAGE 6 ---
+4. Endpoints del Sistema Externo Consumidos 
+4.1 Facturación y ventas  
+ 
+Método Endpoint Descripción 
+POST /api/Factura/Insertar Crear factura/orden desde Shopify. 
+POST /api/Factura/GetFacturas Consultar facturas existentes para 
+idempotencia. 
+POST /api/Factura/GetVendedores Catálogo de vendedores. 
+POST /api/Factura/GetNCFVendedores NCF disponibles por vendedor. 
+POST /api/Factura/GetTotalDevoluciones Resumen de devoluciones. 
+POST /api/Factura/InsertarVisita Registrar visita al confirmar entrega. 
+POST /api/Factura/GetVentasProductosFamilia Ventas por familia. 
+POST /api/Factura/GetDetalleVentasProductosFamilia Detalle de ventas por familia. 
+GET /api/Factura/ProductosComprados Historial de compras por cliente. 
+ 
+ 
+
+
+--- PAGE 7 ---
+4.2 Inventario y productos  
+Método Endpoint Descripción 
+POST /api/Minvitm/get Productos con stock, precio y estado. 
+POST /api/Minvitm/LectorPrecio Producto individual con imagen y precio. 
+GET /api/Minvitm/familias Familias/categorías. 
+GET /api/Minvitm/marcas Marcas. 
+POST /api/Mfacpre/get Listas de precio. 
+POST /api/Madmimg/get Imágenes por tabla y master ID. 
+GET /api/Minvfismovil/getfisico Conteos de inventario físico móvil. 
+POST /api/inventario/fisico Ajuste de stock físico desde fulfillment. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+
+--- PAGE 8 ---
+Flujos Clave 
+5.1 Orden Shopify → Factura en el SE  
+1. Shopify envía webhook `POST /webhooks/shopify/orders/create`. 
+2. FastAPI valida HMAC-SHA256. 
+3. Guarda payload crudo en `event_inbox`. 
+4. Verifica idempotencia en `map_order_ids`. 
+5. Encola job `insert_invoice_job`. 
+6. Worker resuelve vendedor, NCF , cliente, condición de pago y sucursal. 
+7. Transforma la orden a `MfactrxDto`. 
+8. Llama `POST /api/Factura/Insertar`. 
+9. Guarda relación en `map_order_ids` y `map_invoices`. 
+10. Si falla, reintenta con backoff exponencial. 
+ 
+ 5.2 Pagos no -Shopify  
+ 
+1. Worker `payment_polling_job` corre periódicamente. 
+2. Consulta recibos recientes en el SE. 
+3. Verifica si `eftrcb_numero` existe en `map_recibos`. 
+4. Actualiza `financial_status = paid` en Shopify. 
+5. Registra recibo y auditoría. 
+6. Si Shopify falla, reintenta hasta 5 veces. 
+ 
+ 5.3 Sincronización de inventario  
+ 
+1. Worker consulta `POST /api/Minvitm/get`. 
+2. Complementa con `GET /api/Minvfismovil/getfisico`. 
+3. Compara stock SE contra stock Shopify. 
+4. Guarda snapshot. 
+
+
+--- PAGE 9 ---
+5. Ajusta Shopify si hay diferencia. 
+6. Marca `reconciled = true`. 
+7. Si hay discrepancy persistente, emite alerta. 
+8. Al confirmar fulfillment, aplica ajuste al SE vía `POST /api/inventario/fisico`. 
+ 
+6. Esquema de Base de Datos PostgreSQL 
+CREATE EXTENSION IF NOT EXISTS pgcrypto; 
+CREATE TYPE event_status AS ENUM ('pending' , 'processing' , 'done' , 'failed' , 'dead'); 
+CREATE TYPE sync_status AS ENUM ('running' , 'success' , 'failed'); 
+CREATE TABLE event_inbox ( 
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), 
+  source TEXT NOT NULL, 
+  topic TEXT NOT NULL, 
+  external_id TEXT, 
+  payload JSONB NOT NULL, 
+  status event_status NOT NULL DEFAULT 'pending' , 
+  retry_count INT NOT NULL DEFAULT 0, 
+  error_message TEXT, 
+  received_at TIMESTAMPTZ NOT NULL DEFAULT now(), 
+  processed_at TIMESTAMPTZ, 
+  purge_after TIMESTAMPTZ NOT NULL DEFAULT now() + interval '30 days' 
+); 
+CREATE TABLE event_outbox ( 
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), 
+  target TEXT NOT NULL, 
+  operation TEXT NOT NULL, 
+  payload JSONB NOT NULL, 
+  status event_status NOT NULL DEFAULT 'pending' , 
+
+
+--- PAGE 10 ---
+  retry_count INT NOT NULL DEFAULT 0, 
+  next_retry_at TIMESTAMPTZ, 
+  response JSONB, 
+  error_message TEXT, 
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), 
+  processed_at TIMESTAMPTZ, 
+  purge_after TIMESTAMPTZ NOT NULL DEFAULT now() + interval '30 days' 
+); 
+CREATE TABLE map_order_ids ( 
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), 
+  shopify_order_id BIGINT NOT NULL UNIQUE, 
+  shopify_order_name TEXT NOT NULL, 
+  factrx_movil_id TEXT UNIQUE, 
+  factrx_numero TEXT, 
+  status TEXT NOT NULL DEFAULT 'created' , 
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), 
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now() 
+); 
+CREATE TABLE map_sku_variant ( 
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), 
+  invtim_codigo INT NOT NULL UNIQUE, 
+  sku TEXT NOT NULL, 
+  shopify_product_id BIGINT, 
+  shopify_variant_id BIGINT UNIQUE, 
+  shopify_inventory_item_id BIGINT UNIQUE, 
+  last_price NUMERIC(14,2), 
+  active BOOLEAN NOT NULL DEFAULT true, 
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now() 
+); 
+
+
+--- PAGE 11 ---
+CREATE TABLE map_cliente_customer ( 
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), 
+  cxccte_codigo INT NOT NULL UNIQUE, 
+  shopify_customer_id BIGINT UNIQUE, 
+  email TEXT, 
+  phone TEXT, 
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now() 
+); 
+CREATE TABLE map_invoices ( 
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), 
+  shopify_order_id BIGINT NOT NULL REFERENCES map_order_ids(shopify_order_id), 
+  factrx_numero TEXT NOT NULL, 
+  admncf_serial TEXT, 
+  ncf TEXT, 
+  status TEXT NOT NULL DEFAULT 'pending' , 
+  payload JSONB, 
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), 
+  UNIQUE (factrx_numero, admncf_serial) 
+); 
+CREATE TABLE map_recibos ( 
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), 
+  shopify_order_id BIGINT NOT NULL REFERENCES map_order_ids(shopify_order_id), 
+  eftrcb_numero INT NOT NULL UNIQUE, 
+  amount NUMERIC(14,2) NOT NULL, 
+  shopify_update_attempts INT NOT NULL DEFAULT 0, 
+  status TEXT NOT NULL DEFAULT 'pending' , 
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now() 
+); 
+ 
+
+
+--- PAGE 12 ---
+CREATE TABLE map_sucursales_locations ( 
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), 
+  admsuc_codigo INT NOT NULL UNIQUE, 
+  shopify_location_id BIGINT NOT NULL UNIQUE, 
+  name TEXT, 
+  active BOOLEAN NOT NULL DEFAULT true 
+); 
+CREATE TABLE stg_inventory_snapshots ( 
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), 
+  invtim_codigo INT NOT NULL REFERENCES map_sku_variant(invtim_codigo), 
+  admsuc_codigo INT REFERENCES map_sucursales_locations(admsuc_codigo), 
+  se_stock NUMERIC(14,4) NOT NULL, 
+  mobile_physical_stock NUMERIC(14,4), 
+  shopify_stock NUMERIC(14,4), 
+  reconciled BOOLEAN NOT NULL DEFAULT false, 
+  source_payload JSONB, 
+  captured_at TIMESTAMPTZ NOT NULL DEFAULT now() 
+); 
+CREATE TABLE map_parametros_cache ( 
+  key TEXT PRIMARY KEY , 
+  value JSONB NOT NULL, 
+  expires_at TIMESTAMPTZ, 
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now() 
+); 
+CREATE TABLE sync_runs ( 
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), 
+  sync_type TEXT NOT NULL, 
+  status sync_status NOT NULL DEFAULT 'running' , 
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(), 
+
+
+--- PAGE 13 ---
+  finished_at TIMESTAMPTZ, 
+  stats JSONB, 
+  error_message TEXT 
+); 
+6.1 Índices 
+CREATE INDEX idx_event_inbox_status 
+ON event_inbox(status, received_at); 
+CREATE INDEX idx_event_inbox_external 
+ON event_inbox(source, topic, external_id); 
+CREATE INDEX idx_event_inbox_payload_gin 
+ON event_inbox USING GIN (payload); 
+CREATE INDEX idx_event_outbox_status_retry 
+ON event_outbox(status, next_retry_at); 
+CREATE INDEX idx_event_outbox_target_op 
+ON event_outbox(target, operation); 
+CREATE INDEX idx_order_factrx_numero 
+ON map_order_ids(factrx_numero); 
+CREATE INDEX idx_sku_variant_sku 
+ON map_sku_variant(sku); 
+CREATE INDEX idx_customer_email 
+ON map_cliente_customer(email); 
+CREATE INDEX idx_inventory_reconcile 
+ON stg_inventory_snapshots(reconciled, captured_at); 
+CREATE INDEX idx_inventory_product_branch 
+ON stg_inventory_snapshots(invtim_codigo, admsuc_codigo, captured_at DESC); 
+CREATE INDEX idx_sync_runs_type_started 
+ON sync_runs(sync_type, started_at DESC); 
+ 
+
+
+--- PAGE 14 ---
+7. Workers y Tareas Asíncronas 
+Job Trigger Descripción 
+insert_invoice_job Webhook 
+orders/create 
+Resuelve lookups, transforma a MfactrxDto e 
+inserta en el SE. 
+payment_polling_job Cron periódico Polling de recibos SE → actualiza 
+financial_status Shopify. 
+inventory_sync_job Cron + manual Compara stock SE + inventario físico móvil vs 
+Shopify. 
+inventory_reconcile_job Cron cada 30 min Reconciliación completa. Emite alerta si hay 
+diferencia. 
+physical_inventory_job Webhook fulfillments Aplica ajuste físico al SE vía 
+/api/inventario/fisico. 
+product_sync_job Cron + manual Sincroniza productos, precios e imágenes del 
+SE a Shopify. 
+price_sync_job Cron cada 2 min Actualiza precios Shopify si cambian en el SE. 
+image_sync_job Manual / creación 
+producto 
+Convierte imágenes Base64 del SE en assets 
+para Shopify. 
+invoice_emit_job Webhook orders/paid Emite factura con NCF y envía PDF al cliente. 
+
+
+--- PAGE 15 ---
+Job Trigger Descripción 
+credit_note_job Webhook refunds Emite nota de crédito en el SE. 
+customer_sync_job Webhook customers Crea o actualiza cliente en el SE. 
+visit_register_job Webhook fulfillments Registra visita del vendedor en el SE. 
+ 
+8. Seguridad y Resiliencia 
+8.1 Seguridad  
+Control Implementación 
+HMAC-SHA256 Validación de cada webhook Shopify antes de encolar. 
+TLS 1.2+ Toda comunicación externa por HTTPS. 
+Secrets Credenciales en AWS Secrets Manager o HashiCorp Vault. 
+API Key / OAuth SE Token cacheado en Redis con TTL. 
+Privacidad Datos sensibles no se loguean en texto plano. 
+ 
+ 
+ 
+
+
+--- PAGE 16 ---
+8.2 Resiliencia  
+Patrón Detalle 
+Idempotencia factrx_movil_id, shopify_order_id y eftrcb_numero con constraints únicos. 
+Backoff exponencial Reintentos con delay progresivo hasta 5 intentos. 
+Circuit breaker Cliente HTTP hacia SE con tenacity o lógica equivalente. 
+DLQ Eventos muertos pasan a cola dead-letter. 
+Retención Eventos retenidos hasta 24h si el SE está caído. 
+Timeout SE Timeout recomendado de 30 segundos. 
+ 
+9. Observabilidad y Monitoreo 
+Área Herramienta Detalle 
+Logs ELK / Datadog JSON estructurado con trace_id, event_type, estado y duración. 
+Trazabilidad OpenTelemetry Trazas webhook → worker → SE → Shopify. 
+Alertas PagerDuty/SNS Error rate > 2%, DLQ > 10, NCF agotado, timeout SE. 
+
+
+--- PAGE 17 ---
+Área Herramienta Detalle 
+Dashboard Grafana Órdenes, cobros, ventas por familia, facturas, errores. 
+Métricas Prometheus Latencia P95, tasa de error, profundidad de cola, duración de 
+sync. 
+ 
+10. Stack y Dependencias 
+ 
+Capa Tecnología Notas 
+API FastAPI + Uvicorn Python 3.12, Pydantic v2. 
+Workers Celery / ARQ Tareas asíncronas y cron jobs. 
+Broker / caché Redis 7 Broker, caché de idempotencia y DTOs. 
+Base de datos PostgreSQL 16 SQLAlchemy 2.x + Alembic. 
+HTTP client httpx + tenacity Cliente async para SE y Shopify. 
+Storage AWS S3 / Cloudflare R2 PDFs de facturas e imágenes 
+procesadas. 
+Observabilidad OpenTelemetry + 
+Grafana Trazas, métricas y dashboards. 
+Secrets AWS Secrets Manager Alternativa: HashiCorp Vault. 
+
+
+--- PAGE 18 ---
+Capa Tecnología Notas 
+Contenedores Docker + ECS / Railway docker-compose para desarrollo local. 
+CI/CD GitHub Actions Tests, build, push y deploy. 
+ 
