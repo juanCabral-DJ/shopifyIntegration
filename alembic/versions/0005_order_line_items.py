@@ -15,6 +15,10 @@ depends_on = None
 
 
 def upgrade() -> None:
+    inspector = sa.inspect(op.get_bind())
+    if inspector.has_table("order_items"):
+        return
+
     op.create_table(
         "order_items",
         sa.Column("id", sa.Integer(), primary_key=True, index=True),
@@ -36,6 +40,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    inspector = sa.inspect(op.get_bind())
+    if not inspector.has_table("order_items"):
+        return
+
     op.drop_index("ix_order_items_sku", table_name="order_items")
     op.drop_index("ix_order_items_shopify_variant_id", table_name="order_items")
     op.drop_index("ix_order_items_shopify_product_id", table_name="order_items")
