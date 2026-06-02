@@ -1,4 +1,5 @@
 # Python
+/k8s/
 __pycache__/
 *.py[cod]
 *.pyo
@@ -23,3 +24,4 @@ htmlcov/
 # IDE
 .vscode/
 .idea/
+ 

@@ -1153,6 +1153,8 @@ def _shopify_product_payload(product: dict[str, Any]) -> dict[str, Any]:
     price = _product_price(product)
     family_name = _clean_text(_first_value(product, "invfam_nombre", "familia_nombre", "product_type"))
     brand_name = _clean_text(_first_value(product, "invmar_nombre", "marca_nombre", "vendor"))
+    stock = _first_value(product, "invcos_Exist", "invcos_exist", "se_stock", "stock", "existencia", "invitm_existencia")
+    stock_quantity = _stock_quantity(stock) if stock is not None else None
     tags = [f"se-item:{item_code}"]
     if family_name:
         tags.append(family_name)
@@ -1165,12 +1167,14 @@ def _shopify_product_payload(product: dict[str, Any]) -> dict[str, Any]:
     }
     if price is not None:
         variant["price"] = str(price)
+    if stock_quantity is not None:
+        variant["inventory_quantity"] = stock_quantity
     payload: dict[str, Any] = {
         "title": title,
         "vendor": brand_name or "SE",
         "product_type": family_name,
         "tags": ", ".join(tags),
-        "status": "active" if _first_value(product, "admsts_codigo", "active", "activo") in (None, True, 1, "1", "A") else "draft",
+        "status": _shopify_product_status(product, stock_quantity),
         "variants": [variant],
     }
     return {key: value for key, value in payload.items() if value not in (None, "", [])}
@@ -1188,6 +1192,12 @@ def _stock_quantity(value: Any) -> int:
         return max(0, int(float(value)))
     except (TypeError, ValueError):
         return 0
+
+
+def _shopify_product_status(product: dict[str, Any], stock_quantity: int | None) -> str:
+    if stock_quantity is not None and stock_quantity <= 0:
+        return "unlisted"
+    return "active" if _first_value(product, "admsts_codigo", "active", "activo") in (None, True, 1, "1", "A") else "draft"
 
 
 def _se_customer_to_shopify(customer: dict[str, Any]) -> dict[str, Any]:

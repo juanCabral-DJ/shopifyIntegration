@@ -42,6 +42,21 @@ def test_se_product_payload_handles_casing_stock_and_nullable_fields():
     assert payload["variants"][0]["inventory_quantity"] == 7
 
 
+def test_se_product_payload_marks_zero_stock_as_unlisted():
+    payload = shopify_product_payload(
+        {
+            "invitm_Codigo": "43",
+            "invitm_nombre": "Cafe sin stock",
+            "facpre_Contado": "12.50",
+            "invcos_Exist": "0",
+            "admsts_codigo": "A",
+        }
+    )
+
+    assert payload["status"] == "unlisted"
+    assert payload["variants"][0]["inventory_quantity"] == 0
+
+
 def test_se_customer_transformers_map_both_directions():
     shopify_payload = se_customer_to_shopify(
         {

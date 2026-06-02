@@ -25,17 +25,16 @@ def shopify_product_payload(product: dict[str, Any]) -> dict[str, Any]:
     }
     if price is not None:
         variant["price"] = str(price)
-    if stock is not None:
-        variant["inventory_quantity"] = _stock_quantity(stock)
+    stock_quantity = _stock_quantity(stock) if stock is not None else None
+    if stock_quantity is not None:
+        variant["inventory_quantity"] = stock_quantity
 
     payload: dict[str, Any] = {
         "title": title,
         "vendor": brand_name or "SE",
         "product_type": family_name,
         "tags": ", ".join(tags),
-        "status": "active"
-        if first_value(product, "admsts_codigo", "admsts_Codigo", "active", "activo") in (None, True, 1, "1", "A")
-        else "draft",
+        "status": _product_status(product, stock_quantity),
         "variants": [variant],
     }
     return {key: value for key, value in payload.items() if value not in (None, "", [])}
@@ -147,3 +146,11 @@ def _stock_quantity(value: Any) -> int:
         return max(0, int(float(value)))
     except (TypeError, ValueError):
         return 0
+
+
+def _product_status(product: dict[str, Any], stock_quantity: int | None) -> str:
+    if stock_quantity is not None and stock_quantity <= 0:
+        return "unlisted"
+    if first_value(product, "admsts_codigo", "admsts_Codigo", "active", "activo") in (None, True, 1, "1", "A"):
+        return "active"
+    return "draft"
