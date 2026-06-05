@@ -114,9 +114,9 @@ async def test_list_prices_sends_company_and_price_codes(monkeypatch):
         {
             "admCia_Codigo": 101,
             "facpre_Codigo": 101,
-            "facpre_Nombre": "",
+            "facpre_Nombre": "string",
             "invitm_Codigo": 0,
-            "admuni_Codigo": "",
+            "admuni_Codigo": "string",
             "facpre_Contado": 0,
             "facpre_Minimo": 0,
             "facpre_Perdec": 0,
@@ -150,9 +150,9 @@ async def test_list_prices_accepts_explicit_price_code(monkeypatch):
         {
             "admCia_Codigo": 101,
             "facpre_Codigo": 101,
-            "facpre_Nombre": "",
+            "facpre_Nombre": "string",
             "invitm_Codigo": 0,
-            "admuni_Codigo": "",
+            "admuni_Codigo": "string",
             "facpre_Contado": 0,
             "facpre_Minimo": 0,
             "facpre_Perdec": 0,

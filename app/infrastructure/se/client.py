@@ -172,9 +172,9 @@ class SEClient:
             return {
                 "admCia_Codigo": company_code,
                 "facpre_Codigo": price_code,
-                "facpre_Nombre": payload.get("facpre_Nombre", ""),
+                "facpre_Nombre": payload.get("facpre_Nombre", "string"),
                 "invitm_Codigo": self._coerce_company_code(payload.get("invitm_Codigo", payload.get("invitm_codigo", 0))),
-                "admuni_Codigo": payload.get("admuni_Codigo", payload.get("admuni_codigo", "")),
+                "admuni_Codigo": payload.get("admuni_Codigo", payload.get("admuni_codigo", "string")),
                 "facpre_Contado": payload.get("facpre_Contado", payload.get("facpre_contado", 0)),
                 "facpre_Minimo": payload.get("facpre_Minimo", payload.get("facpre_minimo", 0)),
                 "facpre_Perdec": payload.get("facpre_Perdec", payload.get("facpre_perdec", 0)),
@@ -184,9 +184,9 @@ class SEClient:
         return {
             "admCia_Codigo": code,
             "facpre_Codigo": code,
-            "facpre_Nombre": "",
+            "facpre_Nombre": "string",
             "invitm_Codigo": 0,
-            "admuni_Codigo": "",
+            "admuni_Codigo": "string",
             "facpre_Contado": 0,
             "facpre_Minimo": 0,
             "facpre_Perdec": 0,
