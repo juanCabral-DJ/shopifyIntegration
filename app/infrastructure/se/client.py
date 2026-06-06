@@ -161,7 +161,7 @@ class SEClient:
         return await self.get("/api/Minvitm/marcas")
 
     async def list_prices(self, payload: Any = None) -> Any:
-        return await self.post_json_value("/api/Mfacpre/get", self._price_body(payload))
+        return await self.post_json_value("/api/mfacpre/get", self._price_body(payload))
 
     def _price_body(self, payload: Any = None) -> list[dict[str, Any]]:
         if isinstance(payload, list):
