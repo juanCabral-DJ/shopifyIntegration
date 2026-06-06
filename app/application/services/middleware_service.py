@@ -124,6 +124,7 @@ class MiddlewareService:
                         active=True,
                     )
                     mapped += 1
+                    await self._update_prices_sync_progress(run, len(prices), mapped, shopify_updated, skipped)
                     continue
                 if (
                     _positive_int(getattr(existing, "shopify_product_id", None)) is not None
@@ -149,6 +150,7 @@ class MiddlewareService:
                     active=existing.active if existing else True,
                 )
                 mapped += 1
+                await self._update_prices_sync_progress(run, len(prices), mapped, shopify_updated, skipped)
             await self.integration_repo.add_outbox_event(
                 target="shopify",
                 operation="prices.sync",
@@ -172,6 +174,32 @@ class MiddlewareService:
         except (ExternalSystemNotConfigured, httpx.HTTPError) as exc:
             await self.integration_repo.finish_sync_run(run, "failed", error_message=str(exc))
             return {"status": "failed", "error": str(exc)}
+
+    async def _update_prices_sync_progress(
+        self,
+        run: Any,
+        prices_received: int,
+        mapped: int,
+        shopify_updated: int,
+        skipped: int,
+    ) -> None:
+        if mapped == 0 or mapped % 100 != 0:
+            return
+        update_stats = getattr(self.integration_repo, "update_sync_run_stats", None)
+        if update_stats is None:
+            return
+        await update_stats(
+            run,
+            {
+                "received": prices_received,
+                "mapped": mapped,
+                "shopify_updated": shopify_updated,
+                "skipped": skipped,
+            },
+        )
+        session = getattr(self.integration_repo, "session", None)
+        if session is not None:
+            await session.commit()
 
     async def sync_inventory(
         self,
