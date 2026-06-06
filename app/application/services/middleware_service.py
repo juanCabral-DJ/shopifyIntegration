@@ -103,8 +103,8 @@ class MiddlewareService:
             external_client=self._require_se_client(),
         ).sync_products(payload=payload, run=run)
 
-    async def sync_prices(self) -> dict[str, Any]:
-        run = await self.integration_repo.start_sync_run("prices")
+    async def sync_prices(self, run: Any | None = None) -> dict[str, Any]:
+        run = run or await self.integration_repo.start_sync_run("prices")
         try:
             data = await self._require_se_client().list_prices()
             prices = _records(data)
