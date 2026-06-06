@@ -162,7 +162,7 @@ async def test_list_prices_accepts_explicit_price_code(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_list_customers_sends_customer_contract_payload(monkeypatch):
+async def test_list_customers_sends_company_code_only(monkeypatch):
     captured = {}
 
     class FakeResponse:
@@ -185,26 +185,7 @@ async def test_list_customers_sends_customer_contract_payload(monkeypatch):
 
     assert result == [{"cxccte_Codigo": 10}]
     assert captured["url"] == "http://se.example/api/mcxccte/get"
-    assert captured["json"] == {
-        "admcia_Codigo": 101,
-        "facvdr_Codigo": 0,
-        "cxccte_Codigo": 0,
-        "cxccte_Refer": "string",
-        "cxccte_Nombre": "string",
-        "cxccte_Rnc": "string",
-        "cxccpg_Codigo": 0,
-        "admtco_Codigo": 0,
-        "facpre_Codigo": 0,
-        "cxcdir_seq": 0,
-        "cxcdir_Nombre": "string",
-        "cxccon_seq": 0,
-        "cxccon_Nombre": "string",
-        "cxccte_telef1": "string",
-        "cxccte_limcred": 0,
-        "cxccte_latitud": "string",
-        "cxccte_longitud": "string",
-        "cxccte_descuento": 0,
-    }
+    assert captured["json"] == {"admcia_codigo": 101}
     assert captured["headers"] == {"Content-Type": "application/json"}
 
 
