@@ -389,9 +389,23 @@ class FakePriceRepo(FakeRunRepo):
         }
         self.upserts = []
         self.outbox_events = []
+        self.progress_updates = []
+        self.bulk_mapping_calls = 0
 
     async def get_sku_map_by_item_code(self, invitm_codigo):
         return self.sku_maps.get(invitm_codigo)
+
+    async def get_sku_maps_by_item_codes(self, invitm_codigos):
+        self.bulk_mapping_calls += 1
+        return {
+            item_code: self.sku_maps[item_code]
+            for item_code in invitm_codigos
+            if item_code in self.sku_maps
+        }
+
+    async def update_sync_run_stats(self, run, stats):
+        self.progress_updates.append({"run": run, "stats": stats})
+        return SimpleNamespace(**stats)
 
     async def upsert_sku_map(self, **kwargs):
         self.upserts.append(kwargs)
@@ -431,11 +445,58 @@ async def test_sync_prices_uses_principal_price_and_updates_shopify_variant():
 
     result = await service.sync_prices()
 
-    assert result == {"status": "success", "received": 3, "mapped": 2, "shopify_updated": 1, "skipped": 0}
+    assert result == {
+        "status": "success",
+        "received": 3,
+        "mapped": 1,
+        "shopify_updated": 1,
+        "shopify_skipped": 1,
+        "skipped": 0,
+    }
     assert shopify.updates == [(100, {"variants": [{"id": 200, "price": "12.50"}]})]
     assert repo.upserts[0]["last_price"] == "12.50"
-    assert repo.upserts[1]["last_price"] == "20.00"
+    assert len(repo.upserts) == 1
+    assert repo.bulk_mapping_calls == 1
     assert repo.outbox_events[0]["status"] == "done"
+
+
+class FakePriceProgressRepo(FakePriceRepo):
+    def __init__(self):
+        super().__init__()
+        self.session = FakeCommitSession()
+        self.sku_maps = {
+            item_code: SimpleNamespace(
+                invitm_codigo=item_code,
+                sku=f"SKU-{item_code}",
+                shopify_product_id=1000 + item_code,
+                shopify_variant_id=2000 + item_code,
+                last_price=f"{item_code}.00",
+                active=True,
+            )
+            for item_code in range(1, 206)
+        }
+
+
+class FakePriceProgressSE:
+    async def list_prices(self):
+        return [
+            {"invitm_Codigo": item_code, "facpre_Contado": f"{item_code + 1}.00", "facpre_Principal": 1}
+            for item_code in range(1, 206)
+        ]
+
+
+@pytest.mark.asyncio
+async def test_sync_prices_updates_progress_every_100_processed_prices():
+    repo = FakePriceProgressRepo()
+    service = MiddlewareService(integration_repo=repo, se_client=FakePriceProgressSE(), shopify_client=FakePriceShopify())
+
+    result = await service.sync_prices()
+
+    assert result["status"] == "success"
+    assert result["mapped"] == 205
+    assert result["shopify_updated"] == 205
+    assert [update["stats"]["processed"] for update in repo.progress_updates] == [100, 200]
+    assert repo.session.commits == 2
 
 
 class FakeCommitSession:

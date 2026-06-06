@@ -109,12 +109,14 @@ class MiddlewareService:
             data = await self._require_se_client().list_prices()
             prices = _records(data)
             principal_prices = _principal_prices_by_item(prices)
+            existing_mappings = await self._existing_price_mappings_by_item_code(list(principal_prices))
             mapped = 0
             shopify_updated = 0
             skipped = 0
-            for item_code, price in principal_prices.items():
+            shopify_skipped = 0
+            for processed, (item_code, price) in enumerate(principal_prices.items(), start=1):
                 amount = _first_value(price, "facpre_Contado", "facpre_contado")
-                existing = await self.integration_repo.get_sku_map_by_item_code(item_code)
+                existing = existing_mappings.get(item_code)
                 if existing is None:
                     skipped += 1
                     await self.integration_repo.upsert_sku_map(
@@ -124,11 +126,35 @@ class MiddlewareService:
                         active=True,
                     )
                     mapped += 1
+                    await self._update_prices_sync_progress(
+                        run,
+                        len(prices),
+                        len(principal_prices),
+                        processed,
+                        mapped,
+                        shopify_updated,
+                        shopify_skipped,
+                        skipped,
+                    )
                     continue
+
+                if _prices_equal(getattr(existing, "last_price", None), amount):
+                    shopify_skipped += 1
+                    await self._update_prices_sync_progress(
+                        run,
+                        len(prices),
+                        len(principal_prices),
+                        processed,
+                        mapped,
+                        shopify_updated,
+                        shopify_skipped,
+                        skipped,
+                    )
+                    continue
+
                 if (
                     _positive_int(getattr(existing, "shopify_product_id", None)) is not None
                     and _positive_int(getattr(existing, "shopify_variant_id", None)) is not None
-                    and not _prices_equal(getattr(existing, "last_price", None), amount)
                 ):
                     await self._require_shopify_client().update_product(
                         int(existing.shopify_product_id),
@@ -142,6 +168,8 @@ class MiddlewareService:
                         },
                     )
                     shopify_updated += 1
+                else:
+                    shopify_skipped += 1
                 await self.integration_repo.upsert_sku_map(
                     invitm_codigo=item_code,
                     sku=existing.sku if existing else str(item_code),
@@ -149,6 +177,16 @@ class MiddlewareService:
                     active=existing.active if existing else True,
                 )
                 mapped += 1
+                await self._update_prices_sync_progress(
+                    run,
+                    len(prices),
+                    len(principal_prices),
+                    processed,
+                    mapped,
+                    shopify_updated,
+                    shopify_skipped,
+                    skipped,
+                )
             await self.integration_repo.add_outbox_event(
                 target="shopify",
                 operation="prices.sync",
@@ -157,6 +195,7 @@ class MiddlewareService:
                     "received": len(prices),
                     "mapped": mapped,
                     "shopify_updated": shopify_updated,
+                    "shopify_skipped": shopify_skipped,
                     "skipped": skipped,
                 },
                 status="done",
@@ -165,6 +204,7 @@ class MiddlewareService:
                 "received": len(prices),
                 "mapped": mapped,
                 "shopify_updated": shopify_updated,
+                "shopify_skipped": shopify_skipped,
                 "skipped": skipped,
             }
             await self.integration_repo.finish_sync_run(run, "success", stats)
@@ -172,6 +212,49 @@ class MiddlewareService:
         except (ExternalSystemNotConfigured, httpx.HTTPError) as exc:
             await self.integration_repo.finish_sync_run(run, "failed", error_message=str(exc))
             return {"status": "failed", "error": str(exc)}
+
+    async def _existing_price_mappings_by_item_code(self, item_codes: list[int]) -> dict[int, Any]:
+        if hasattr(self.integration_repo, "get_sku_maps_by_item_codes"):
+            return await self.integration_repo.get_sku_maps_by_item_codes(item_codes)
+
+        mappings = {}
+        for item_code in item_codes:
+            mapping = await self.integration_repo.get_sku_map_by_item_code(item_code)
+            if mapping is not None:
+                mappings[item_code] = mapping
+        return mappings
+
+    async def _update_prices_sync_progress(
+        self,
+        run: Any,
+        prices_received: int,
+        principal_prices: int,
+        processed: int,
+        mapped: int,
+        shopify_updated: int,
+        shopify_skipped: int,
+        skipped: int,
+    ) -> None:
+        if processed % 100 != 0:
+            return
+        update_stats = getattr(self.integration_repo, "update_sync_run_stats", None)
+        if update_stats is None:
+            return
+        await update_stats(
+            run,
+            {
+                "received": prices_received,
+                "principal_prices": principal_prices,
+                "processed": processed,
+                "mapped": mapped,
+                "shopify_updated": shopify_updated,
+                "shopify_skipped": shopify_skipped,
+                "skipped": skipped,
+            },
+        )
+        session = getattr(self.integration_repo, "session", None)
+        if session is not None:
+            await session.commit()
 
     async def sync_inventory(
         self,
