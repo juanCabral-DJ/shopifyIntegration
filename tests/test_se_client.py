@@ -162,6 +162,53 @@ async def test_list_prices_accepts_explicit_price_code(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_list_customers_sends_customer_contract_payload(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return [{"cxccte_Codigo": 10}]
+
+    async def fake_post(self, url, json, headers):
+        captured["url"] = url
+        captured["json"] = json
+        captured["headers"] = headers
+        return FakeResponse()
+
+    monkeypatch.setattr(AsyncClient, "post", fake_post)
+    client = SEClient(base_url="http://se.example", company_code=101)
+
+    result = await client.list_customers()
+
+    assert result == [{"cxccte_Codigo": 10}]
+    assert captured["url"] == "http://se.example/api/mcxccte/get"
+    assert captured["json"] == {
+        "admcia_Codigo": 101,
+        "facvdr_Codigo": 0,
+        "cxccte_Codigo": 0,
+        "cxccte_Refer": "string",
+        "cxccte_Nombre": "string",
+        "cxccte_Rnc": "string",
+        "cxccpg_Codigo": 0,
+        "admtco_Codigo": 0,
+        "facpre_Codigo": 0,
+        "cxcdir_seq": 0,
+        "cxcdir_Nombre": "string",
+        "cxccon_seq": 0,
+        "cxccon_Nombre": "string",
+        "cxccte_telef1": "string",
+        "cxccte_limcred": 0,
+        "cxccte_latitud": "string",
+        "cxccte_longitud": "string",
+        "cxccte_descuento": 0,
+    }
+    assert captured["headers"] == {"Content-Type": "application/json"}
+
+
+@pytest.mark.asyncio
 async def test_insert_invoice_sends_mfactrx_array_payload_with_company_code(monkeypatch):
     captured = {}
 

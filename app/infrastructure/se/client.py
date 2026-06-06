@@ -110,7 +110,31 @@ class SEClient:
         return await self.post("/api/madmsuc/get", payload)
 
     async def list_customers(self, payload: dict[str, Any] | None = None) -> Any:
-        return await self.post("/api/mcxccte/get", payload)
+        return await self.post_json_value("/api/mcxccte/get", self._customer_body(payload))
+
+    def _customer_body(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        body = dict(payload or {})
+        company_code = self._first_payload_value(body, "admcia_Codigo", "admcia_codigo", "admCia_Codigo")
+        return {
+            "admcia_Codigo": self._coerce_company_code(company_code if company_code is not None else self.company_code),
+            "facvdr_Codigo": body.get("facvdr_Codigo", body.get("facvdr_codigo", 0)),
+            "cxccte_Codigo": body.get("cxccte_Codigo", body.get("cxccte_codigo", 0)),
+            "cxccte_Refer": body.get("cxccte_Refer", body.get("cxccte_refer", "string")),
+            "cxccte_Nombre": body.get("cxccte_Nombre", body.get("cxccte_nombre", "string")),
+            "cxccte_Rnc": body.get("cxccte_Rnc", body.get("cxccte_rnc", "string")),
+            "cxccpg_Codigo": body.get("cxccpg_Codigo", body.get("cxccpg_codigo", 0)),
+            "admtco_Codigo": body.get("admtco_Codigo", body.get("admtco_codigo", 0)),
+            "facpre_Codigo": body.get("facpre_Codigo", body.get("facpre_codigo", 0)),
+            "cxcdir_seq": body.get("cxcdir_seq", 0),
+            "cxcdir_Nombre": body.get("cxcdir_Nombre", body.get("cxcdir_nombre", "string")),
+            "cxccon_seq": body.get("cxccon_seq", 0),
+            "cxccon_Nombre": body.get("cxccon_Nombre", body.get("cxccon_nombre", "string")),
+            "cxccte_telef1": body.get("cxccte_telef1", body.get("cxccte_Telef1", "string")),
+            "cxccte_limcred": body.get("cxccte_limcred", 0),
+            "cxccte_latitud": body.get("cxccte_latitud", "string"),
+            "cxccte_longitud": body.get("cxccte_longitud", "string"),
+            "cxccte_descuento": body.get("cxccte_descuento", 0),
+        }
 
     async def update_customer(self, payload: dict[str, Any]) -> Any:
         return await self.post("/api/mcxccte/Actualizar", payload)
