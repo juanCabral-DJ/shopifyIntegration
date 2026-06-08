@@ -1,6 +1,14 @@
 from typing import Any
 
-from app.application.normalization import clean_text, first_int, first_value, product_price, product_sku, product_title
+from app.application.normalization import (
+    clean_text,
+    first_int,
+    first_value,
+    product_price,
+    product_sku,
+    product_title,
+    shopify_price,
+)
 
 
 def shopify_product_payload(product: dict[str, Any]) -> dict[str, Any]:
@@ -23,8 +31,9 @@ def shopify_product_payload(product: dict[str, Any]) -> dict[str, Any]:
         "inventory_management": "shopify",
         "inventory_policy": "deny",
     }
-    if price is not None:
-        variant["price"] = str(price)
+    formatted_price = shopify_price(price)
+    if formatted_price is not None:
+        variant["price"] = formatted_price
     stock_quantity = _stock_quantity(stock) if stock is not None else None
     if stock_quantity is not None:
         variant["inventory_quantity"] = stock_quantity

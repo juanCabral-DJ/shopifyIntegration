@@ -57,6 +57,32 @@ def test_se_product_payload_marks_zero_stock_as_unlisted():
     assert payload["variants"][0]["inventory_quantity"] == 0
 
 
+def test_se_product_payload_omits_negative_price():
+    payload = shopify_product_payload(
+        {
+            "invitm_Codigo": "44",
+            "invitm_nombre": "Cafe ajuste",
+            "facpre_Contado": "-1.00",
+            "admsts_codigo": "A",
+        }
+    )
+
+    assert "price" not in payload["variants"][0]
+
+
+def test_se_product_payload_omits_nan_price():
+    payload = shopify_product_payload(
+        {
+            "invitm_Codigo": "45",
+            "invitm_nombre": "Cafe precio raro",
+            "facpre_Contado": "NaN",
+            "admsts_codigo": "A",
+        }
+    )
+
+    assert "price" not in payload["variants"][0]
+
+
 def test_se_customer_transformers_map_both_directions():
     shopify_payload = se_customer_to_shopify(
         {
@@ -428,6 +454,22 @@ class FakePriceSE:
         ]
 
 
+class FakeNegativePriceSE:
+    async def list_prices(self):
+        return [
+            {"invitm_Codigo": 1, "facpre_Contado": "-3.00", "facpre_Principal": 1},
+            {"invitm_Codigo": 2, "facpre_Contado": "20.00", "facpre_Principal": 1},
+        ]
+
+
+class FakeNanPriceSE:
+    async def list_prices(self):
+        return [
+            {"invitm_Codigo": 1, "facpre_Contado": "NaN", "facpre_Principal": 1},
+            {"invitm_Codigo": 2, "facpre_Contado": "20.00", "facpre_Principal": 1},
+        ]
+
+
 class FakePriceShopify:
     def __init__(self):
         self.updates = []
@@ -458,6 +500,48 @@ async def test_sync_prices_uses_principal_price_and_updates_shopify_variant():
     assert len(repo.upserts) == 1
     assert repo.bulk_mapping_calls == 1
     assert repo.outbox_events[0]["status"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_sync_prices_skips_negative_shopify_price_without_failing_run():
+    repo = FakePriceRepo()
+    shopify = FakePriceShopify()
+    service = MiddlewareService(integration_repo=repo, se_client=FakeNegativePriceSE(), shopify_client=shopify)
+
+    result = await service.sync_prices()
+
+    assert result == {
+        "status": "success",
+        "received": 2,
+        "mapped": 1,
+        "shopify_updated": 0,
+        "shopify_skipped": 2,
+        "skipped": 0,
+    }
+    assert shopify.updates == []
+    assert repo.upserts[0]["last_price"] == "-3.00"
+    assert repo.finished["status"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_sync_prices_skips_nan_shopify_price_without_failing_run():
+    repo = FakePriceRepo()
+    shopify = FakePriceShopify()
+    service = MiddlewareService(integration_repo=repo, se_client=FakeNanPriceSE(), shopify_client=shopify)
+
+    result = await service.sync_prices()
+
+    assert result == {
+        "status": "success",
+        "received": 2,
+        "mapped": 1,
+        "shopify_updated": 0,
+        "shopify_skipped": 2,
+        "skipped": 0,
+    }
+    assert shopify.updates == []
+    assert repo.upserts[0]["last_price"] == "NaN"
+    assert repo.finished["status"] == "success"
 
 
 class FakePriceProgressRepo(FakePriceRepo):

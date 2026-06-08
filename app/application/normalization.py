@@ -1,3 +1,4 @@
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 
@@ -87,6 +88,16 @@ def product_title(product: dict[str, Any], fallback: str) -> str:
 
 def product_price(product: dict[str, Any]) -> Any:
     return first_value(product, "facpre_Contado", "facpre_contado", "precio", "price")
+
+
+def shopify_price(value: Any) -> str | None:
+    try:
+        price = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    if not price.is_finite() or price < 0:
+        return None
+    return str(value)
 
 
 def shopify_product_payload(product: dict[str, Any]) -> dict[str, Any]:

@@ -1,4 +1,5 @@
 import logging
+from decimal import Decimal, InvalidOperation
 from typing import Any
 import httpx
 
@@ -152,6 +153,28 @@ class MiddlewareService:
                     )
                     continue
 
+                shopify_price = _shopify_price(amount)
+                if shopify_price is None:
+                    shopify_skipped += 1
+                    await self.integration_repo.upsert_sku_map(
+                        invitm_codigo=item_code,
+                        sku=existing.sku if existing else str(item_code),
+                        last_price=amount,
+                        active=existing.active if existing else True,
+                    )
+                    mapped += 1
+                    await self._update_prices_sync_progress(
+                        run,
+                        len(prices),
+                        len(principal_prices),
+                        processed,
+                        mapped,
+                        shopify_updated,
+                        shopify_skipped,
+                        skipped,
+                    )
+                    continue
+
                 if (
                     _positive_int(getattr(existing, "shopify_product_id", None)) is not None
                     and _positive_int(getattr(existing, "shopify_variant_id", None)) is not None
@@ -162,7 +185,7 @@ class MiddlewareService:
                             "variants": [
                                 {
                                     "id": int(existing.shopify_variant_id),
-                                    "price": _shopify_price(amount),
+                                    "price": shopify_price,
                                 }
                             ]
                         },
@@ -1222,11 +1245,14 @@ def _prices_equal(left: Any, right: Any) -> bool:
         return str(left or "").strip() == str(right or "").strip()
 
 
-def _shopify_price(value: Any) -> str:
+def _shopify_price(value: Any) -> str | None:
     try:
-        return f"{float(value):.2f}"
-    except (TypeError, ValueError):
-        return str(value)
+        price = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    if not price.is_finite() or price < 0:
+        return None
+    return f"{price:.2f}"
 
 
 def _shopify_product_payload(product: dict[str, Any]) -> dict[str, Any]:
@@ -1248,8 +1274,9 @@ def _shopify_product_payload(product: dict[str, Any]) -> dict[str, Any]:
         "inventory_management": "shopify",
         "inventory_policy": "deny",
     }
-    if price is not None:
-        variant["price"] = str(price)
+    formatted_price = _shopify_price(price)
+    if formatted_price is not None:
+        variant["price"] = formatted_price
     if stock_quantity is not None:
         variant["inventory_quantity"] = stock_quantity
     payload: dict[str, Any] = {
