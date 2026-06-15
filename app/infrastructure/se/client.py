@@ -78,6 +78,19 @@ class SEClient:
                 return {}
             return response.json()
 
+    async def post_without_body(self, path: str) -> Any:
+        self._require_configured()
+        async with httpx.AsyncClient(trust_env=False, timeout=SE_TIMEOUT_SECONDS) as client:
+            response = await client.post(
+                f"{self.base_url}{path}",
+                headers=self._headers(),
+            )
+            self._raise_for_status(response)
+            self.last_status_code = getattr(response, "status_code", None)
+            if not getattr(response, "content", b"data"):
+                return {}
+            return response.json()
+
     async def insert_invoice(self, payload: list[dict[str, Any]] | dict[str, Any]) -> Any:
         rows = payload.get("mfactrx_rows", [payload]) if isinstance(payload, dict) else payload
         return await self.post_json_value("/api/Factura/Insertar", self.with_company_rows(rows))
@@ -212,8 +225,8 @@ class SEClient:
         company_code = self._coerce_company_code(payload)
         return {"admcia_codigo": company_code, "admcia_Codigo": company_code}
 
-    async def list_images(self, table: str, master_id: int) -> Any:
-        return await self.post("/api/Madmimg/get", {"admimg_tabla": table, "admimg_master": master_id})
+    async def list_images(self) -> Any:
+        return await self.post_without_body("/api/Madmimg/get")
 
     async def list_physical_inventory(self) -> Any:
         return await self.get("/api/Minvfismovil/getfisico")

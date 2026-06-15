@@ -365,9 +365,8 @@ class FakeImageRepo(FakeRunRepo):
 
 
 class FakeImageSE:
-    async def list_images(self, table, master_id):
-        assert table == "INVITM"
-        return [{"base64": "abc123", "filename": "one.jpg"}]
+    async def list_images(self):
+        return [{"admimg_master": 1, "base64": "abc123", "filename": "one.jpg"}]
 
 
 class FakeImageShopify:

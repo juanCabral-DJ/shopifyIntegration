@@ -109,7 +109,7 @@ async def test_list_prices_sends_company_and_price_codes(monkeypatch):
     result = await client.list_prices()
 
     assert result == [{"invitm_codigo": 10, "facpre_Contado": 99}]
-    assert captured["url"] == "http://se.example/api/Mfacpre/get"
+    assert captured["url"] == "http://se.example/api/mfacpre/get"
     assert captured["json"] == [
         {
             "admCia_Codigo": 101,
@@ -159,6 +159,32 @@ async def test_list_prices_accepts_explicit_price_code(monkeypatch):
             "facpre_Principal": 0,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_list_images_sends_no_body(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return [{"admimg_master": 10, "admimg_imagen": "abc123"}]
+
+    async def fake_post(self, url, headers):
+        captured["url"] = url
+        captured["headers"] = headers
+        return FakeResponse()
+
+    monkeypatch.setattr(AsyncClient, "post", fake_post)
+    client = SEClient(base_url="http://se.example", company_code=101)
+
+    result = await client.list_images()
+
+    assert result == [{"admimg_master": 10, "admimg_imagen": "abc123"}]
+    assert captured["url"] == "http://se.example/api/Madmimg/get"
+    assert captured["headers"] == {"Content-Type": "application/json"}
 
 
 @pytest.mark.asyncio

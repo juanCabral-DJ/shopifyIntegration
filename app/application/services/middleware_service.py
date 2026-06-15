@@ -446,36 +446,48 @@ class MiddlewareService:
             raise ValueError("Unknown report")
         return {"report": report, "data": data}
 
-    async def sync_images(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        run = await self.integration_repo.start_sync_run("images")
+    async def sync_images(self, run: Any | None = None) -> dict[str, Any]:
+        run = run or await self.integration_repo.start_sync_run("images")
         try:
-            requested_item = _first_int(payload or {}, "invitm_codigo", "admimg_master")
             mappings = await self.integration_repo.list_mapping("skus", limit=1000)
+            mappings_by_item = {
+                int(item_code): mapping
+                for mapping in mappings
+                if (item_code := _positive_int(getattr(mapping, "invitm_codigo", None))) is not None
+            }
+            images = _records(await self._require_se_client().list_images())
             uploaded = 0
-            skipped = 0
-            received = 0
-            for mapping in mappings:
-                item_code = getattr(mapping, "invitm_codigo", None)
-                if requested_item is not None and item_code != requested_item:
+            skipped = sum(1 for mapping in mappings if not getattr(mapping, "shopify_product_id", None))
+            received = len(images)
+            item_image_counts: dict[int, int] = {}
+            for image in images:
+                item_code = _first_int(image, "admimg_master", "invitm_codigo", "invitm_Codigo", "codigo")
+                if item_code is None:
+                    skipped += 1
+                    continue
+                mapping = mappings_by_item.get(item_code)
+                if mapping is None:
+                    skipped += 1
                     continue
                 shopify_product_id = getattr(mapping, "shopify_product_id", None)
                 if not shopify_product_id:
                     skipped += 1
                     continue
-                images = _records(await self._require_se_client().list_images("INVITM", int(item_code)))
-                received += len(images)
-                for index, image in enumerate(images, start=1):
-                    base64_data = _first_value(image, "base64", "admimg_imagen", "imagen", "image", "attachment")
-                    if not base64_data:
-                        skipped += 1
-                        continue
-                    filename = str(_first_value(image, "filename", "admimg_nombre", "nombre") or f"{item_code}-{index}.jpg")
-                    await self._require_shopify_client().upload_product_image(
-                        int(shopify_product_id),
-                        str(base64_data),
-                        filename,
-                    )
-                    uploaded += 1
+                base64_data = _first_value(image, "base64", "admimg_imagen", "imagen", "image", "attachment")
+                if not base64_data:
+                    skipped += 1
+                    continue
+                item_image_counts[item_code] = item_image_counts.get(item_code, 0) + 1
+                filename = str(
+                    _first_value(image, "filename", "admimg_nombre", "nombre")
+                    or f"{item_code}-{item_image_counts[item_code]}.jpg"
+                )
+                await self._require_shopify_client().upload_product_image(
+                    int(shopify_product_id),
+                    str(base64_data),
+                    filename,
+                )
+                uploaded += 1
             stats = {"received": received, "uploaded": uploaded, "skipped": skipped}
             await self.integration_repo.finish_sync_run(run, "success", stats)
             return {"status": "success", **stats}

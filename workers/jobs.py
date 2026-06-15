@@ -23,8 +23,8 @@ async def inventory_reconcile_job(service: MiddlewareService) -> dict[str, Any]:
     return await service.sync_inventory(reconcile=True)
 
 
-async def image_sync_job(service: MiddlewareService, payload: dict[str, Any]) -> dict[str, Any]:
-    return await service.sync_images(payload)
+async def image_sync_job(service: MiddlewareService) -> dict[str, Any]:
+    return await service.sync_images()
 
 
 async def customer_sync_job(service: MiddlewareService) -> dict[str, Any]:
