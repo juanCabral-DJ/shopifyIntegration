@@ -1,4 +1,5 @@
 import logging
+import hashlib
 from decimal import Decimal, InvalidOperation
 from typing import Any
 import httpx
@@ -458,6 +459,7 @@ class MiddlewareService:
             mappings_by_item = await self._existing_image_mappings_by_item_code(image_item_codes)
             uploaded = 0
             skipped = 0
+            duplicate_skipped = 0
             received = len(images)
             item_image_counts: dict[int, int] = {}
             for image in images:
@@ -477,18 +479,39 @@ class MiddlewareService:
                 if not base64_data:
                     skipped += 1
                     continue
+                image_hash = _image_hash(base64_data)
+                admimg_linea = _first_int(image, "admimg_linea", "linea", "line", "id")
+                external_image_id = _image_external_id(image, item_code, image_hash)
+                existing_image = await self._existing_product_image_map(external_image_id, item_code, image_hash)
+                if (
+                    existing_image is not None
+                    and getattr(existing_image, "image_hash", None) == image_hash
+                    and getattr(existing_image, "shopify_image_id", None)
+                ):
+                    skipped += 1
+                    duplicate_skipped += 1
+                    continue
                 item_image_counts[item_code] = item_image_counts.get(item_code, 0) + 1
                 filename = str(
                     _first_value(image, "filename", "admimg_nombre", "nombre")
                     or f"{item_code}-{item_image_counts[item_code]}.jpg"
                 )
-                await self._require_shopify_client().upload_product_image(
+                shopify_image = await self._require_shopify_client().upload_product_image(
                     int(shopify_product_id),
                     str(base64_data),
                     filename,
                 )
+                await self._upsert_product_image_map(
+                    external_image_id=external_image_id,
+                    invitm_codigo=item_code,
+                    admimg_linea=admimg_linea,
+                    image_hash=image_hash,
+                    shopify_product_id=int(shopify_product_id),
+                    shopify_image_id=_first_int(shopify_image, "id"),
+                    filename=filename,
+                )
                 uploaded += 1
-            stats = {"received": received, "uploaded": uploaded, "skipped": skipped}
+            stats = {"received": received, "uploaded": uploaded, "skipped": skipped, "duplicate_skipped": duplicate_skipped}
             await self.integration_repo.finish_sync_run(run, "success", stats)
             return {"status": "success", **stats}
         except (ExternalSystemNotConfigured, httpx.HTTPError, ValueError) as exc:
@@ -509,6 +532,40 @@ class MiddlewareService:
             if mapping is not None:
                 mappings[item_code] = mapping
         return mappings
+
+    async def _existing_product_image_map(
+        self,
+        external_image_id: str,
+        invitm_codigo: int,
+        image_hash: str,
+    ) -> Any | None:
+        get_image_map = getattr(self.integration_repo, "get_product_image_map", None)
+        if get_image_map is None:
+            return None
+        return await get_image_map(external_image_id, invitm_codigo, image_hash)
+
+    async def _upsert_product_image_map(
+        self,
+        external_image_id: str,
+        invitm_codigo: int,
+        admimg_linea: int | None,
+        image_hash: str,
+        shopify_product_id: int,
+        shopify_image_id: int | None,
+        filename: str,
+    ) -> None:
+        upsert_image_map = getattr(self.integration_repo, "upsert_product_image_map", None)
+        if upsert_image_map is None:
+            return
+        await upsert_image_map(
+            external_image_id=external_image_id,
+            invitm_codigo=invitm_codigo,
+            admimg_linea=admimg_linea,
+            image_hash=image_hash,
+            shopify_product_id=shopify_product_id,
+            shopify_image_id=shopify_image_id,
+            filename=filename,
+        )
 
     async def sync_branches(self) -> dict[str, Any]:
         return await BranchSyncService(
@@ -1159,6 +1216,18 @@ def _first_int(record: dict[str, Any] | None, *keys: str) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _image_hash(base64_data: Any) -> str:
+    return hashlib.sha256(str(base64_data).strip().encode("utf-8")).hexdigest()
+
+
+def _image_external_id(image: dict[str, Any], item_code: int, image_hash: str) -> str:
+    table = str(_first_value(image, "admimg_tabla", "tabla") or "minvitm").strip().lower()
+    line = _first_value(image, "admimg_linea", "linea", "line", "id")
+    if line not in (None, ""):
+        return f"{table}:{item_code}:{line}"
+    return f"{table}:{item_code}:{image_hash[:16]}"
 
 
 def _clean_text(value: Any) -> str | None:

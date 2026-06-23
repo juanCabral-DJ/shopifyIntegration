@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, Integer, JSON, Numeric, String, Text
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, Integer, JSON, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.sql import func
 
 from app.infrastructure.db import Base
@@ -73,6 +73,25 @@ class MapSkuVariant(Base):
     last_price = Column(Numeric(14, 2), nullable=True)
     active = Column(Boolean, nullable=False, default=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now(), nullable=False)
+
+
+class MapProductImage(Base):
+    __tablename__ = "map_product_images"
+
+    id = Column(String(36), primary_key=True, default=new_uuid)
+    external_image_id = Column(String(255), unique=True, nullable=False, index=True)
+    invitm_codigo = Column(Integer, nullable=False, index=True)
+    admimg_linea = Column(Integer, nullable=True)
+    image_hash = Column(String(64), nullable=False, index=True)
+    shopify_product_id = Column(BigInteger, nullable=False, index=True)
+    shopify_image_id = Column(BigInteger, unique=True, nullable=True, index=True)
+    filename = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("invitm_codigo", "image_hash", name="uq_map_product_images_item_hash"),
+    )
 
 
 class MapClienteCustomer(Base):

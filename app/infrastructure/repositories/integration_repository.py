@@ -14,6 +14,7 @@ from app.domain.models.integration import (
     MapMarcasTags,
     MapOrderIds,
     MapParametrosCache,
+    MapProductImage,
     MapRecibos,
     MapSkuVariant,
     MapSucursalesLocations,
@@ -299,6 +300,59 @@ class IntegrationRepository:
         await self.session.flush()
         return mapping
 
+    async def get_product_image_map(
+        self,
+        external_image_id: str,
+        invitm_codigo: int | None = None,
+        image_hash: str | None = None,
+    ) -> MapProductImage | None:
+        result = await self.session.execute(
+            select(MapProductImage).where(MapProductImage.external_image_id == external_image_id)
+        )
+        mapping = result.scalars().first()
+        if mapping is not None and (image_hash is None or mapping.image_hash == image_hash):
+            return mapping
+        if invitm_codigo is None or image_hash is None:
+            return mapping
+        result = await self.session.execute(
+            select(MapProductImage).where(
+                and_(
+                    MapProductImage.invitm_codigo == invitm_codigo,
+                    MapProductImage.image_hash == image_hash,
+                )
+            )
+        )
+        return result.scalars().first() or mapping
+
+    async def upsert_product_image_map(
+        self,
+        external_image_id: str,
+        invitm_codigo: int,
+        image_hash: str,
+        shopify_product_id: int,
+        admimg_linea: int | None = None,
+        shopify_image_id: int | None = None,
+        filename: str | None = None,
+    ) -> MapProductImage:
+        mapping = await self.get_product_image_map(external_image_id, invitm_codigo, image_hash)
+        if mapping is None:
+            mapping = MapProductImage(
+                external_image_id=external_image_id,
+                invitm_codigo=invitm_codigo,
+                image_hash=image_hash,
+                shopify_product_id=shopify_product_id,
+            )
+        mapping.external_image_id = external_image_id
+        mapping.invitm_codigo = invitm_codigo
+        mapping.admimg_linea = admimg_linea
+        mapping.image_hash = image_hash
+        mapping.shopify_product_id = shopify_product_id
+        mapping.shopify_image_id = shopify_image_id or mapping.shopify_image_id
+        mapping.filename = filename or mapping.filename
+        self.session.add(mapping)
+        await self.session.flush()
+        return mapping
+
     async def upsert_customer_map(
         self,
         cxccte_codigo: int,
@@ -551,6 +605,7 @@ class IntegrationRepository:
             "customers": MapClienteCustomer,
             "invoices": MapInvoices,
             "receipts": MapRecibos,
+            "product_images": MapProductImage,
             "branches": MapSucursalesLocations,
             "families": MapFamiliasCollections,
             "brands": MapMarcasTags,

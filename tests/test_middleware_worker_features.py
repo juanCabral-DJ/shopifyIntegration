@@ -357,6 +357,11 @@ async def test_order_invoice_payload_uses_branch_with_product_stock():
 
 
 class FakeImageRepo(FakeRunRepo):
+    def __init__(self):
+        super().__init__()
+        self.image_maps = {}
+        self.upserted_image_maps = []
+
     async def get_sku_maps_by_item_codes(self, invitm_codigos):
         mappings = {
             1: SimpleNamespace(invitm_codigo=1, shopify_product_id=10),
@@ -364,10 +369,19 @@ class FakeImageRepo(FakeRunRepo):
         }
         return {item_code: mappings[item_code] for item_code in invitm_codigos if item_code in mappings}
 
+    async def get_product_image_map(self, external_image_id, invitm_codigo=None, image_hash=None):
+        return self.image_maps.get(external_image_id)
+
+    async def upsert_product_image_map(self, **kwargs):
+        mapping = SimpleNamespace(**kwargs)
+        self.image_maps[kwargs["external_image_id"]] = mapping
+        self.upserted_image_maps.append(kwargs)
+        return mapping
+
 
 class FakeImageSE:
     async def list_images(self):
-        return [{"admimg_master": 1, "base64": "abc123", "filename": "one.jpg"}]
+        return [{"admimg_tabla": "minvitm", "admimg_master": 1, "admimg_linea": 1, "base64": "abc123", "filename": "one.jpg"}]
 
 
 class FakeImageShopify:
@@ -389,7 +403,30 @@ async def test_sync_images_uploads_mapped_product_images():
 
     assert result["uploaded"] == 1
     assert result["skipped"] == 0
+    assert result["duplicate_skipped"] == 0
     assert shopify.uploads == [(10, "abc123", "one.jpg")]
+    assert repo.upserted_image_maps[0]["external_image_id"] == "minvitm:1:1"
+    assert repo.upserted_image_maps[0]["shopify_image_id"] == 99
+
+
+@pytest.mark.asyncio
+async def test_sync_images_skips_previously_uploaded_product_images():
+    repo = FakeImageRepo()
+    repo.image_maps["minvitm:1:1"] = SimpleNamespace(
+        external_image_id="minvitm:1:1",
+        invitm_codigo=1,
+        image_hash="6ca13d52ca70c883e0f0bb101e425a89e8624de51db2d2392593af6a84118090",
+        shopify_image_id=99,
+    )
+    shopify = FakeImageShopify()
+    service = MiddlewareService(integration_repo=repo, se_client=FakeImageSE(), shopify_client=shopify)
+
+    result = await service.sync_images()
+
+    assert result["uploaded"] == 0
+    assert result["skipped"] == 1
+    assert result["duplicate_skipped"] == 1
+    assert shopify.uploads == []
 
 
 class FakePriceRepo(FakeRunRepo):
