@@ -357,11 +357,12 @@ async def test_order_invoice_payload_uses_branch_with_product_stock():
 
 
 class FakeImageRepo(FakeRunRepo):
-    async def list_mapping(self, mapping, limit=1000):
-        return [
-            SimpleNamespace(invitm_codigo=1, shopify_product_id=10),
-            SimpleNamespace(invitm_codigo=2, shopify_product_id=None),
-        ]
+    async def get_sku_maps_by_item_codes(self, invitm_codigos):
+        mappings = {
+            1: SimpleNamespace(invitm_codigo=1, shopify_product_id=10),
+            2: SimpleNamespace(invitm_codigo=2, shopify_product_id=None),
+        }
+        return {item_code: mappings[item_code] for item_code in invitm_codigos if item_code in mappings}
 
 
 class FakeImageSE:
@@ -387,7 +388,7 @@ async def test_sync_images_uploads_mapped_product_images():
     result = await service.sync_images()
 
     assert result["uploaded"] == 1
-    assert result["skipped"] == 1
+    assert result["skipped"] == 0
     assert shopify.uploads == [(10, "abc123", "one.jpg")]
 
 

@@ -449,15 +449,15 @@ class MiddlewareService:
     async def sync_images(self, run: Any | None = None) -> dict[str, Any]:
         run = run or await self.integration_repo.start_sync_run("images")
         try:
-            mappings = await self.integration_repo.list_mapping("skus", limit=1000)
-            mappings_by_item = {
-                int(item_code): mapping
-                for mapping in mappings
-                if (item_code := _positive_int(getattr(mapping, "invitm_codigo", None))) is not None
-            }
             images = _records(await self._require_se_client().list_images())
+            image_item_codes = [
+                item_code
+                for image in images
+                if (item_code := _first_int(image, "admimg_master", "invitm_codigo", "invitm_Codigo", "codigo")) is not None
+            ]
+            mappings_by_item = await self._existing_image_mappings_by_item_code(image_item_codes)
             uploaded = 0
-            skipped = sum(1 for mapping in mappings if not getattr(mapping, "shopify_product_id", None))
+            skipped = 0
             received = len(images)
             item_image_counts: dict[int, int] = {}
             for image in images:
@@ -496,6 +496,19 @@ class MiddlewareService:
             logger.exception("Image sync failed")
             await self.integration_repo.finish_sync_run(run, "failed", error_message=message)
             return {"status": "failed", "error": message}
+
+    async def _existing_image_mappings_by_item_code(self, item_codes: list[int]) -> dict[int, Any]:
+        if not item_codes:
+            return {}
+        if hasattr(self.integration_repo, "get_sku_maps_by_item_codes"):
+            return await self.integration_repo.get_sku_maps_by_item_codes(item_codes)
+
+        mappings = {}
+        for item_code in item_codes:
+            mapping = await self.integration_repo.get_sku_map_by_item_code(item_code)
+            if mapping is not None:
+                mappings[item_code] = mapping
+        return mappings
 
     async def sync_branches(self) -> dict[str, Any]:
         return await BranchSyncService(
