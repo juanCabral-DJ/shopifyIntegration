@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 
 from sqlalchemy import BigInteger, Column, DateTime, Integer, JSON, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.sql import func
@@ -33,6 +34,25 @@ class ProductMapping(MappingColumnsMixin, Base):
         UniqueConstraint("shopify_product_id", name="uq_product_mapping_shopify_product_id"),
     )
 
+    @property
+    def invitm_codigo(self) -> int:
+        try:
+            return int(self.external_product_id)
+        except (TypeError, ValueError):
+            return 0
+
+    @invitm_codigo.setter
+    def invitm_codigo(self, value: Any) -> None:
+        self.external_product_id = str(value)
+
+    @property
+    def active(self) -> bool:
+        return self.sync_status != "disabled"
+
+    @active.setter
+    def active(self, value: bool) -> None:
+        self.sync_status = "synced" if value else "disabled"
+
 
 class VariantMapping(MappingColumnsMixin, Base):
     __tablename__ = "variant_mapping"
@@ -51,6 +71,35 @@ class VariantMapping(MappingColumnsMixin, Base):
         UniqueConstraint("shopify_inventory_item_id", name="uq_variant_mapping_inventory_item_id"),
     )
 
+    @property
+    def invitm_codigo(self) -> int:
+        try:
+            return int(self.external_variant_id)
+        except (TypeError, ValueError):
+            return 0
+
+    @invitm_codigo.setter
+    def invitm_codigo(self, value: Any) -> None:
+        self.external_variant_id = str(value)
+        if not self.external_product_id:
+            self.external_product_id = str(value)
+
+    @property
+    def last_price(self) -> Any | None:
+        return self.price
+
+    @last_price.setter
+    def last_price(self, value: Any) -> None:
+        self.price = value
+
+    @property
+    def active(self) -> bool:
+        return self.sync_status != "disabled"
+
+    @active.setter
+    def active(self, value: bool) -> None:
+        self.sync_status = "synced" if value else "disabled"
+
 
 class OrderMapping(MappingColumnsMixin, Base):
     __tablename__ = "order_mapping"
@@ -67,6 +116,30 @@ class OrderMapping(MappingColumnsMixin, Base):
         UniqueConstraint("external_order_id", name="uq_order_mapping_external_order_id"),
     )
 
+    @property
+    def factrx_movil_id(self) -> str | None:
+        return self.external_order_id
+
+    @factrx_movil_id.setter
+    def factrx_movil_id(self, value: str | None) -> None:
+        self.external_order_id = value
+
+    @property
+    def factrx_numero(self) -> str | None:
+        return self.external_invoice_id
+
+    @factrx_numero.setter
+    def factrx_numero(self, value: str | None) -> None:
+        self.external_invoice_id = value
+
+    @property
+    def status(self) -> str:
+        return self.sync_status
+
+    @status.setter
+    def status(self, value: str) -> None:
+        self.sync_status = value
+
 
 class CustomerMapping(MappingColumnsMixin, Base):
     __tablename__ = "customer_mapping"
@@ -80,6 +153,17 @@ class CustomerMapping(MappingColumnsMixin, Base):
         UniqueConstraint("external_customer_id", name="uq_customer_mapping_external_customer_id"),
         UniqueConstraint("shopify_customer_id", name="uq_customer_mapping_shopify_customer_id"),
     )
+
+    @property
+    def cxccte_codigo(self) -> int:
+        try:
+            return int(self.external_customer_id)
+        except (TypeError, ValueError):
+            return 0
+
+    @cxccte_codigo.setter
+    def cxccte_codigo(self, value: Any) -> None:
+        self.external_customer_id = str(value)
 
 
 class InventoryMapping(MappingColumnsMixin, Base):
@@ -113,6 +197,25 @@ class BranchMapping(MappingColumnsMixin, Base):
         UniqueConstraint("external_branch_id", name="uq_branch_mapping_external_branch_id"),
         UniqueConstraint("shopify_location_id", name="uq_branch_mapping_shopify_location_id"),
     )
+
+    @property
+    def admsuc_codigo(self) -> int:
+        try:
+            return int(self.external_branch_id)
+        except (TypeError, ValueError):
+            return 0
+
+    @admsuc_codigo.setter
+    def admsuc_codigo(self, value: Any) -> None:
+        self.external_branch_id = str(value)
+
+    @property
+    def active(self) -> bool:
+        return self.sync_status != "disabled"
+
+    @active.setter
+    def active(self, value: bool) -> None:
+        self.sync_status = "synced" if value else "disabled"
 
 
 class SyncLog(Base):

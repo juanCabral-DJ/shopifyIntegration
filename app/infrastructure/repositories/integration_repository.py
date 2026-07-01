@@ -8,17 +8,20 @@ from app.domain.models.integration import (
     EventInbox,
     EventOutbox,
     InventorySnapshot,
-    MapClienteCustomer,
     MapFamiliasCollections,
     MapInvoices,
     MapMarcasTags,
-    MapOrderIds,
     MapParametrosCache,
     MapProductImage,
     MapRecibos,
-    MapSkuVariant,
-    MapSucursalesLocations,
     SyncRun,
+)
+from app.domain.models.mapping import (
+    ProductMapping,
+    VariantMapping,
+    OrderMapping,
+    CustomerMapping,
+    BranchMapping,
 )
 
 
@@ -166,9 +169,9 @@ class IntegrationRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_order_map(self, shopify_order_id: int) -> MapOrderIds | None:
+    async def get_order_map(self, shopify_order_id: int) -> OrderMapping | None:
         result = await self.session.execute(
-            select(MapOrderIds).where(MapOrderIds.shopify_order_id == shopify_order_id)
+            select(OrderMapping).where(OrderMapping.shopify_order_id == shopify_order_id)
         )
         return result.scalars().first()
 
@@ -179,21 +182,21 @@ class IntegrationRepository:
         factrx_movil_id: str | None = None,
         factrx_numero: str | None = None,
         status: str = "created",
-    ) -> MapOrderIds:
+    ) -> OrderMapping:
         mapping = await self.get_order_map(shopify_order_id)
         if mapping is None:
-            mapping = MapOrderIds(
+            mapping = OrderMapping(
                 shopify_order_id=shopify_order_id,
                 shopify_order_name=shopify_order_name,
-                factrx_movil_id=factrx_movil_id,
-                factrx_numero=factrx_numero,
-                status=status,
+                external_order_id=factrx_movil_id,
+                external_invoice_id=factrx_numero,
+                sync_status=status,
             )
         else:
             mapping.shopify_order_name = shopify_order_name
-            mapping.factrx_movil_id = factrx_movil_id
-            mapping.factrx_numero = factrx_numero or mapping.factrx_numero
-            mapping.status = status
+            mapping.external_order_id = factrx_movil_id or mapping.external_order_id
+            mapping.external_invoice_id = factrx_numero or mapping.external_invoice_id
+            mapping.sync_status = status
         self.session.add(mapping)
         await self.session.flush()
         return mapping
@@ -252,28 +255,28 @@ class IntegrationRepository:
         await self.session.flush()
         return mapping
 
-    async def get_sku_map_by_item_code(self, invitm_codigo: int) -> MapSkuVariant | None:
+    async def get_sku_map_by_item_code(self, invitm_codigo: int) -> VariantMapping | None:
         result = await self.session.execute(
-            select(MapSkuVariant).where(MapSkuVariant.invitm_codigo == invitm_codigo)
+            select(VariantMapping).where(VariantMapping.external_variant_id == str(invitm_codigo))
         )
         return result.scalars().first()
 
-    async def get_sku_maps_by_item_codes(self, invitm_codigos: list[int]) -> dict[int, MapSkuVariant]:
+    async def get_sku_maps_by_item_codes(self, invitm_codigos: list[int]) -> dict[int, VariantMapping]:
         if not invitm_codigos:
             return {}
         result = await self.session.execute(
-            select(MapSkuVariant).where(MapSkuVariant.invitm_codigo.in_(set(invitm_codigos)))
+            select(VariantMapping).where(VariantMapping.external_variant_id.in_([str(code) for code in invitm_codigos]))
         )
-        return {mapping.invitm_codigo: mapping for mapping in result.scalars().all()}
+        return {int(mapping.external_variant_id): mapping for mapping in result.scalars().all()}
 
-    async def get_sku_map_by_variant_id(self, shopify_variant_id: int) -> MapSkuVariant | None:
+    async def get_sku_map_by_variant_id(self, shopify_variant_id: int) -> VariantMapping | None:
         result = await self.session.execute(
-            select(MapSkuVariant).where(MapSkuVariant.shopify_variant_id == shopify_variant_id)
+            select(VariantMapping).where(VariantMapping.shopify_variant_id == shopify_variant_id)
         )
         return result.scalars().first()
 
-    async def get_sku_map_by_sku(self, sku: str) -> MapSkuVariant | None:
-        result = await self.session.execute(select(MapSkuVariant).where(MapSkuVariant.sku == sku))
+    async def get_sku_map_by_sku(self, sku: str) -> VariantMapping | None:
+        result = await self.session.execute(select(VariantMapping).where(VariantMapping.sku == sku))
         return result.scalars().first()
 
     async def upsert_sku_map(
@@ -285,17 +288,40 @@ class IntegrationRepository:
         shopify_inventory_item_id: int | None = None,
         last_price: Any | None = None,
         active: bool = True,
-        existing_mapping: MapSkuVariant | None = None,
-    ) -> MapSkuVariant:
+        existing_mapping: VariantMapping | None = None,
+    ) -> VariantMapping:
+        # First, ensure ProductMapping exists
+        prod_map = await self.session.execute(
+            select(ProductMapping).where(ProductMapping.external_product_id == str(invitm_codigo))
+        )
+        product_mapping = prod_map.scalars().first()
+        if product_mapping is None:
+            product_mapping = ProductMapping(
+                external_product_id=str(invitm_codigo),
+                shopify_product_id=shopify_product_id,
+                sku=sku,
+                sync_status="synced" if active else "disabled",
+            )
+            self.session.add(product_mapping)
+        else:
+            product_mapping.shopify_product_id = shopify_product_id or product_mapping.shopify_product_id
+            product_mapping.sku = sku or product_mapping.sku
+            product_mapping.sync_status = "synced" if active else "disabled"
+
+        # Now, upsert VariantMapping
         mapping = existing_mapping or await self.get_sku_map_by_item_code(invitm_codigo)
         if mapping is None:
-            mapping = MapSkuVariant(invitm_codigo=invitm_codigo, sku=sku)
+            mapping = VariantMapping(
+                external_variant_id=str(invitm_codigo),
+                external_product_id=str(invitm_codigo),
+                sku=sku,
+            )
         mapping.sku = sku
         mapping.shopify_product_id = shopify_product_id or mapping.shopify_product_id
         mapping.shopify_variant_id = shopify_variant_id or mapping.shopify_variant_id
         mapping.shopify_inventory_item_id = shopify_inventory_item_id or mapping.shopify_inventory_item_id
-        mapping.last_price = last_price if last_price is not None else mapping.last_price
-        mapping.active = active
+        mapping.price = last_price if last_price is not None else mapping.price
+        mapping.sync_status = "synced" if active else "disabled"
         self.session.add(mapping)
         await self.session.flush()
         return mapping
@@ -359,13 +385,13 @@ class IntegrationRepository:
         shopify_customer_id: int | None = None,
         email: str | None = None,
         phone: str | None = None,
-    ) -> MapClienteCustomer:
+    ) -> CustomerMapping:
         result = await self.session.execute(
-            select(MapClienteCustomer).where(MapClienteCustomer.cxccte_codigo == cxccte_codigo)
+            select(CustomerMapping).where(CustomerMapping.external_customer_id == str(cxccte_codigo))
         )
         mapping = result.scalars().first()
         if mapping is None:
-            mapping = MapClienteCustomer(cxccte_codigo=cxccte_codigo)
+            mapping = CustomerMapping(external_customer_id=str(cxccte_codigo))
         mapping.shopify_customer_id = shopify_customer_id or mapping.shopify_customer_id
         mapping.email = email or mapping.email
         mapping.phone = phone or mapping.phone
@@ -373,18 +399,18 @@ class IntegrationRepository:
         await self.session.flush()
         return mapping
 
-    async def get_customer_map_by_shopify_id(self, shopify_customer_id: int) -> MapClienteCustomer | None:
+    async def get_customer_map_by_shopify_id(self, shopify_customer_id: int) -> CustomerMapping | None:
         result = await self.session.execute(
-            select(MapClienteCustomer).where(MapClienteCustomer.shopify_customer_id == shopify_customer_id)
+            select(CustomerMapping).where(CustomerMapping.shopify_customer_id == shopify_customer_id)
         )
         return result.scalars().first()
 
-    async def get_customer_map_by_email(self, email: str) -> MapClienteCustomer | None:
-        result = await self.session.execute(select(MapClienteCustomer).where(MapClienteCustomer.email == email))
+    async def get_customer_map_by_email(self, email: str) -> CustomerMapping | None:
+        result = await self.session.execute(select(CustomerMapping).where(CustomerMapping.email == email))
         return result.scalars().first()
 
-    async def get_customer_map_by_phone(self, phone: str) -> MapClienteCustomer | None:
-        result = await self.session.execute(select(MapClienteCustomer).where(MapClienteCustomer.phone == phone))
+    async def get_customer_map_by_phone(self, phone: str) -> CustomerMapping | None:
+        result = await self.session.execute(select(CustomerMapping).where(CustomerMapping.phone == phone))
         return result.scalars().first()
 
     async def upsert_branch_map(
@@ -393,40 +419,40 @@ class IntegrationRepository:
         shopify_location_id: int | None = None,
         name: str | None = None,
         active: bool = True,
-    ) -> MapSucursalesLocations:
+    ) -> BranchMapping:
         result = await self.session.execute(
-            select(MapSucursalesLocations).where(MapSucursalesLocations.admsuc_codigo == admsuc_codigo)
+            select(BranchMapping).where(BranchMapping.external_branch_id == str(admsuc_codigo))
         )
         mapping = result.scalars().first()
         if mapping is None:
-            mapping = MapSucursalesLocations(admsuc_codigo=admsuc_codigo, shopify_location_id=shopify_location_id)
+            mapping = BranchMapping(external_branch_id=str(admsuc_codigo), shopify_location_id=shopify_location_id)
         mapping.shopify_location_id = shopify_location_id or mapping.shopify_location_id
         mapping.name = name or mapping.name
-        mapping.active = active
+        mapping.sync_status = "synced" if active else "disabled"
         self.session.add(mapping)
         await self.session.flush()
         return mapping
 
-    async def get_branch_map_by_shopify_location_id(self, shopify_location_id: int) -> MapSucursalesLocations | None:
+    async def get_branch_map_by_shopify_location_id(self, shopify_location_id: int) -> BranchMapping | None:
         result = await self.session.execute(
-            select(MapSucursalesLocations).where(MapSucursalesLocations.shopify_location_id == shopify_location_id)
+            select(BranchMapping).where(BranchMapping.shopify_location_id == shopify_location_id)
         )
         return result.scalars().first()
 
-    async def get_branch_map_by_name(self, name: str) -> MapSucursalesLocations | None:
+    async def get_branch_map_by_name(self, name: str) -> BranchMapping | None:
         normalized = name.strip().casefold()
         if not normalized:
             return None
         result = await self.session.execute(
-            select(MapSucursalesLocations).where(func.lower(MapSucursalesLocations.name) == normalized)
+            select(BranchMapping).where(func.lower(BranchMapping.name) == normalized)
         )
         return result.scalars().first()
 
-    async def get_first_branch_map_with_location(self) -> MapSucursalesLocations | None:
+    async def get_first_branch_map_with_location(self) -> BranchMapping | None:
         result = await self.session.execute(
-            select(MapSucursalesLocations)
-            .where(MapSucursalesLocations.shopify_location_id.is_not(None))
-            .order_by(MapSucursalesLocations.admsuc_codigo)
+            select(BranchMapping)
+            .where(BranchMapping.shopify_location_id.is_not(None))
+            .order_by(BranchMapping.external_branch_id)
         )
         return result.scalars().first()
 
@@ -600,13 +626,13 @@ class IntegrationRepository:
 
     async def list_mapping(self, mapping: str, limit: int = 100) -> list[Any]:
         models = {
-            "orders": MapOrderIds,
-            "skus": MapSkuVariant,
-            "customers": MapClienteCustomer,
+            "orders": OrderMapping,
+            "skus": VariantMapping,
+            "customers": CustomerMapping,
             "invoices": MapInvoices,
             "receipts": MapRecibos,
             "product_images": MapProductImage,
-            "branches": MapSucursalesLocations,
+            "branches": BranchMapping,
             "families": MapFamiliasCollections,
             "brands": MapMarcasTags,
             "params": MapParametrosCache,

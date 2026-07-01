@@ -122,37 +122,37 @@ async def _run_image_sync_background(run_id: str) -> None:
                     await failure_session.commit()
 
 
-# async def _run_inventory_sync_background(run_id: str, payload: Any = None) -> None:
-#     async with async_session() as session:
-#         integration_repo = IntegrationRepository(session)
-#         service = MiddlewareService(
-#             integration_repo=integration_repo,
-#             shopify_client=ShopifyClient(
-#                 shop=settings.shopify_shop,
-#                 api_version=settings.shopify_api_version,
-#                 access_token=settings.shopify_access_token,
-#             ),
-#             se_client=SEClient(
-#                 base_url=settings.se_base_url,
-#                 api_key=settings.se_api_key,
-#                 company_code=settings.se_company_code,
-#             ),
-#         )
-#         try:
-#             run = await integration_repo.get_sync_run(run_id)
-#             if run is None:
-#                 return
-#             await service.sync_inventory(payload, run=run)
-#             await session.commit()
-#         except Exception as exc:
-#             await session.rollback()
-#             async with async_session() as failure_session:
-#                 failure_repo = IntegrationRepository(failure_session)
-#                 run = await failure_repo.get_sync_run(run_id)
-#                 if run is not None:
-#                     message = str(exc).strip() or f"{type(exc).__name__}: {exc!r}"
-#                     await failure_repo.finish_sync_run(run, "failed", error_message=message)
-#                     await failure_session.commit()
+async def _run_inventory_sync_background(run_id: str, payload: Any = None) -> None:
+    async with async_session() as session:
+        integration_repo = IntegrationRepository(session)
+        service = MiddlewareService(
+            integration_repo=integration_repo,
+            shopify_client=ShopifyClient(
+                shop=settings.shopify_shop,
+                api_version=settings.shopify_api_version,
+                access_token=settings.shopify_access_token,
+            ),
+            se_client=SEClient(
+                base_url=settings.se_base_url,
+                api_key=settings.se_api_key,
+                company_code=settings.se_company_code,
+            ),
+        )
+        try:
+            run = await integration_repo.get_sync_run(run_id)
+            if run is None:
+                return
+            await service.sync_inventory(payload, run=run)
+            await session.commit()
+        except Exception as exc:
+            await session.rollback()
+            async with async_session() as failure_session:
+                failure_repo = IntegrationRepository(failure_session)
+                run = await failure_repo.get_sync_run(run_id)
+                if run is not None:
+                    message = str(exc).strip() or f"{type(exc).__name__}: {exc!r}"
+                    await failure_repo.finish_sync_run(run, "failed", error_message=message)
+                    await failure_session.commit()
 
 
 @router.post("/products")
@@ -198,26 +198,26 @@ async def sync_prices(
     return await _service(session, shopify_client, se_client).sync_prices()
 
 
-# @router.post("/inventory")
-# async def sync_inventory(
-#     background_tasks: BackgroundTasks,
-#     payload: StrictInt | None = Body(default=None),
-#     wait: bool = False,
-#     session: AsyncSession = Depends(get_session),
-#     shopify_client=Depends(get_shopify_client),
-#     se_client=Depends(get_se_client),
-# ) -> dict[str, Any]:
-#     if not wait:
-#         run = await IntegrationRepository(session).start_sync_run("inventory")
-#         await session.commit()
-#         background_tasks.add_task(_run_inventory_sync_background, run.id, payload)
-#         return {
-#             "status": "queued",
-#             "sync_type": "inventory",
-#             "run_id": run.id,
-#             "detail": "Inventory sync is running in the background. Check GET /sync/runs?sync_type=inventory for progress.",
-#         }
-#     return await _service(session, shopify_client, se_client).sync_inventory(payload)
+@router.post("/inventory")
+async def sync_inventory(
+    background_tasks: BackgroundTasks,
+    payload: StrictInt | None = Body(default=None),
+    wait: bool = False,
+    session: AsyncSession = Depends(get_session),
+    shopify_client=Depends(get_shopify_client),
+    se_client=Depends(get_se_client),
+) -> dict[str, Any]:
+    if not wait:
+        run = await IntegrationRepository(session).start_sync_run("inventory")
+        await session.commit()
+        background_tasks.add_task(_run_inventory_sync_background, run.id, payload)
+        return {
+            "status": "queued",
+            "sync_type": "inventory",
+            "run_id": run.id,
+            "detail": "Inventory sync is running in the background. Check GET /sync/runs?sync_type=inventory for progress.",
+        }
+    return await _service(session, shopify_client, se_client).sync_inventory(payload)
 
 
 @router.post("/images")
